@@ -51,6 +51,7 @@ const App = () => {
 	const [showHint, setShowHint] = useState(false)
 	const [score, setScore] = useState(0)
 	const [itemOpacity, setItemOpacity] = useState(1)
+	const [outlineOnly, setOutlineOnly] = useState(false) // Toggle: transparent bg + thin outline, no text
 	const [showAxes, setShowAxes] = useState(true) // Toggle for axis visibility
 
 	// Quiz History Management
@@ -217,6 +218,7 @@ const App = () => {
 		setHistoryIndex((prev) => prev + 1)
 		setCountdown(0)
 		setShowSuccess(false)
+		setIsPaused(false)
 	}
 
 	const skipToNext = () => startNewQuiz()
@@ -367,17 +369,22 @@ const App = () => {
 												<button onClick={skipToNext} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[9px] font-bold shadow-md">Next</button>
 											</div>
 											<div className="w-px h-3 bg-slate-300 mx-0.5" />
-											<div className="flex items-center gap-2">
-												<span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Vis {Math.round(itemOpacity * 100)}%</span>
-												<input type="range" min="0.1" max="1" step="0.1" value={itemOpacity} onChange={(e) => setItemOpacity(parseFloat(e.target.value))} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-											</div>
+											<button
+												onClick={() => setOutlineOnly(!outlineOnly)}
+												aria-pressed={outlineOnly}
+												aria-label={outlineOnly ? 'Show filled boxes' : 'Show outline only'}
+												className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+											>
+												<Box size={12} />
+												Outline
+											</button>
 										</div>
 									) : (
 										<div className="flex items-center gap-2 bg-white/40 p-0.5 rounded-xl border border-white/30">
 											<div className="flex items-center gap-0.5">
 												<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600" title="Back"><ChevronLeft size={14} /></button>
-												<span className="px-2 py-1 text-[11px] font-semibold text-slate-600 min-w-[4rem] text-center" aria-live="polite">
-													Question {historyIndex + 1} of {quizHistory.length || 1}
+												<span className="px-3 py-1.5 text-[11px] font-semibold text-slate-600 min-w-[4rem] text-center" aria-live="polite">
+													{historyIndex + 1} / {quizHistory.length || 1}
 												</span>
 												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600"><ChevronRight size={14} /></button>
 											</div>
@@ -386,10 +393,15 @@ const App = () => {
 												{showHint ? <Eye size={12} /> : <EyeOff size={12} />} Hint
 											</button>
 											<div className="w-px h-3 bg-slate-300 mx-0.5" />
-											<div className="flex items-center gap-2">
-												<span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Vis {Math.round(itemOpacity * 100)}%</span>
-												<input type="range" min="0.1" max="1" step="0.1" value={itemOpacity} onChange={(e) => setItemOpacity(parseFloat(e.target.value))} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-											</div>
+											<button
+												onClick={() => setOutlineOnly(!outlineOnly)}
+												aria-pressed={outlineOnly}
+												aria-label={outlineOnly ? 'Show filled boxes' : 'Show outline only'}
+												className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+											>
+												<Box size={12} />
+												Outline
+											</button>
 										</div>
 									)}
 								</div>
@@ -447,7 +459,7 @@ const App = () => {
 						{isQuizMode && quizTarget && (
 							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-300 z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
 								{items.slice(0, itemCount).map((item) => (
-									<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#1e293b', borderRadius: '16px', outline: '3px dashed #000', outlineOffset: '-2px', boxSizing: 'border-box' }}>
+									<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box' }}>
 										<span className="font-bold text-2xl opacity-0">{item.id}</span>
 									</div>
 								))}
@@ -456,11 +468,32 @@ const App = () => {
 
 						{/* REAL ITEMS */}
 						<div ref={realContainerRef} className="absolute inset-0 transition-all duration-300 z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
-							{items.slice(0, itemCount).map((item) => (
-								<div key={item.id} onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); setActiveTab('items') }} className={`relative flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl ${selectedId === item.id ? 'ring-[4px] ring-blue-500 z-10' : 'hover:ring-2 hover:ring-blue-300'}`} style={{ width: item.width, height: item.height, backgroundColor: `hsl(${item.id * 50 + 200}, 70%, 60%)`, opacity: itemOpacity, color: 'white', borderRadius: '16px', alignSelf: item.alignSelf, flexGrow: item.flexGrow, flexShrink: item.flexShrink, boxSizing: 'border-box' }}>
-									<span className="font-bold text-xl drop-shadow-sm">{item.id}</span>
-								</div>
-							))}
+							{items.slice(0, itemCount).map((item) => {
+								const itemColor = `hsl(${item.id * 50 + 200}, 70%, 60%)`
+								const isOutline = outlineOnly
+								return (
+									<div
+										key={item.id}
+										onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); setActiveTab('items') }}
+										className={`relative flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl ${selectedId === item.id ? 'ring-[4px] ring-blue-500 z-10' : 'hover:ring-2 hover:ring-blue-300'}`}
+										style={{
+											width: item.width,
+											height: item.height,
+											backgroundColor: isOutline ? 'transparent' : itemColor,
+											opacity: isOutline ? 1 : itemOpacity,
+											color: isOutline ? 'transparent' : 'white',
+											borderRadius: '16px',
+											alignSelf: item.alignSelf,
+											flexGrow: item.flexGrow,
+											flexShrink: item.flexShrink,
+											boxSizing: 'border-box',
+											border: isOutline ? `2px solid ${itemColor}` : undefined,
+										}}
+									>
+										<span className={`font-bold text-2xl ${isOutline ? 'opacity-0' : 'drop-shadow-sm'}`}>{item.id}</span>
+									</div>
+								)
+							})}
 						</div>
 
 						{/* QUIZ HUD */}
