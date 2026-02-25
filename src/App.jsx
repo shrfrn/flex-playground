@@ -294,7 +294,7 @@ const App = () => {
 
 	return (
 		<div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 font-sans">
-			<header className="max-w-7xl mx-auto mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+			<header className="max-w-7xl mx-auto mb-6 flex flex-row flex-wrap items-center justify-between gap-4">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight text-slate-900 leading-tight">Flexbox Playground</h1>
 					<p className="text-slate-500 text-sm">Visualizing CSS Flexbox with real-time feedback.</p>
@@ -303,17 +303,21 @@ const App = () => {
 				<div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 overflow-hidden">
 					<button
 						onClick={() => { setIsQuizMode(false); setQuizHistory([]); setHistoryIndex(-1); setScore(0) }}
-						className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all ${!isQuizMode ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						className={`flex items-center gap-2 px-4 py-2.5 md:px-6 rounded-lg font-bold text-sm transition-all ${!isQuizMode ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						title="Playground"
+						aria-label="Playground"
 					>
 						<Gamepad2 size={16} />
-						Playground
+						<span className="hidden md:inline">Playground</span>
 					</button>
 					<button
 						onClick={() => { setIsQuizMode(true); if (quizHistory.length === 0) startNewQuiz() }}
-						className={`flex items-center gap-2 px-6 py-2.5 rounded-lg font-bold text-sm transition-all ${isQuizMode ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						className={`flex items-center gap-2 px-4 py-2.5 md:px-6 rounded-lg font-bold text-sm transition-all ${isQuizMode ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						title="Quiz Mode"
+						aria-label="Quiz Mode"
 					>
 						<GraduationCap size={18} />
-						Quiz Mode
+						<span className="hidden md:inline">Quiz Mode</span>
 					</button>
 				</div>
 			</header>
@@ -570,11 +574,11 @@ const App = () => {
 						)}
 
 						{activeTab === 'code' && (
-							<div className="bg-slate-900 rounded-[1rem] overflow-hidden flex flex-col min-h-[280px] animate-in fade-in duration-300">
-								<div className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-800/80 border-b border-slate-800 flex-wrap">
-									<div className="flex items-center flex-wrap">
+							<div className="bg-slate-900 rounded-[1rem] overflow-visible flex flex-col min-h-[280px] animate-in fade-in duration-300 pt-3">
+								<div className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-800/80 border-b border-slate-800 -mt-3 overflow-visible">
+									<div className="flex items-end flex-nowrap overflow-x-auto min-w-0 scrollbar-hide min-h-[3.5rem]">
 										<span className="text-slate-400 text-xs font-mono flex items-center gap-1.5 w-[8.5rem] shrink-0"><FileCode size={12} /> {activeCodeTab === 'container' ? 'container' : `item-${activeCodeTab}`}.css</span>
-										<div className="flex items-center gap-2 flex-wrap ml-10">
+										<div className="flex items-center gap-2 flex-nowrap ml-10 shrink-0">
 											<div className="relative inline-block">
 												<button onClick={() => setActiveCodeTab('container')} className={`block px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-colors text-left ${activeCodeTab === 'container' ? 'text-emerald-400 bg-slate-900/80' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'}`}>
 													Container
