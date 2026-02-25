@@ -16,11 +16,11 @@ const DEFAULT_CONTAINER_STYLES = {
 }
 
 const DEFAULT_ITEMS = [
-	{ id: 1, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '60px', height: '60px' },
-	{ id: 2, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '80px', height: '50px' },
-	{ id: 3, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '50px', height: '80px' },
-	{ id: 4, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '70px', height: '40px' },
-	{ id: 5, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '90px', height: '70px' },
+	{ id: 1, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '60px', height: '60px' },
+	{ id: 2, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '80px', height: '50px' },
+	{ id: 3, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '50px', height: '80px' },
+	{ id: 4, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '70px', height: '40px' },
+	{ id: 5, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '90px', height: '70px' },
 ]
 
 function generateContainerCssFromDefaults() {
@@ -39,7 +39,7 @@ function generateContainerCssFromDefaults() {
 function generateItemCssFromDefaults(itemIndex) {
 	const item = DEFAULT_ITEMS[itemIndex - 1]
 	if (!item) return ''
-	return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n}\n`
+	return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n  order: ${item.order};\n}\n`
 }
 
 const App = () => {
@@ -52,6 +52,7 @@ const App = () => {
 	const [score, setScore] = useState(0)
 	const [itemOpacity, setItemOpacity] = useState(1)
 	const [outlineOnly, setOutlineOnly] = useState(false) // Toggle: transparent bg + thin outline, no text
+	const [quizDifficulty, setQuizDifficulty] = useState('medium') // 'easy' | 'medium' | 'hard'
 	const [showAxes, setShowAxes] = useState(true) // Toggle for axis visibility
 
 	// Quiz History Management
@@ -102,7 +103,7 @@ const App = () => {
 	const generateItemCss = (itemIndex) => {
 		const item = items[itemIndex - 1]
 		if (!item) return ''
-		return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n}\n`
+		return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n  order: ${item.order};\n}\n`
 	}
 
 	useEffect(() => {
@@ -168,6 +169,8 @@ const App = () => {
 		if (growMatch) item.flexGrow = parseInt(growMatch[1], 10)
 		const shrinkMatch = val.match(/flex-shrink:\s*(\d+)/)
 		if (shrinkMatch) item.flexShrink = parseInt(shrinkMatch[1], 10)
+		const orderMatch = val.match(/order:\s*(-?\d+)/)
+		if (orderMatch) item.order = parseInt(orderMatch[1], 10)
 		newItems[idx] = item
 		setItems(newItems)
 	}
@@ -207,14 +210,40 @@ const App = () => {
 		parseItemCss(val, itemIndex)
 	}
 
-	const startNewQuiz = () => {
-		const randomStyles = {
-			flexDirection: flexValues.flexDirection[Math.floor(Math.random() * flexValues.flexDirection.length)],
-			justifyContent: flexValues.justifyContent[Math.floor(Math.random() * flexValues.justifyContent.length)],
-			alignItems: flexValues.alignItems[Math.floor(Math.random() * flexValues.alignItems.length)],
+	const pickRandom = arr => arr[Math.floor(Math.random() * arr.length)]
+
+	const generateQuizQuestion = () => {
+		const containerProps = {
+			flexDirection: pickRandom(flexValues.flexDirection),
+			justifyContent: pickRandom(flexValues.justifyContent),
+			alignItems: pickRandom(flexValues.alignItems),
 			gap: `${Math.floor(Math.random() * 5) * 5}px`,
 		}
-		setQuizHistory((prev) => [...prev, randomStyles])
+
+		if (quizDifficulty === 'easy') return containerProps
+
+		const itemOverrides = {}
+		const activeItems = items.slice(0, itemCount)
+
+		activeItems.forEach(item => {
+			const overrides = {}
+
+			if (Math.random() > 0.5) overrides.alignSelf = pickRandom(flexValues.alignSelf.filter(v => v !== 'auto'))
+			if (Math.random() > 0.5) overrides.order = Math.floor(Math.random() * itemCount)
+
+			if (Object.keys(overrides).length > 0) itemOverrides[item.id] = overrides
+		})
+
+		if (Object.keys(itemOverrides).length === 0) {
+			const randomItem = pickRandom(activeItems)
+			itemOverrides[randomItem.id] = { order: Math.floor(Math.random() * itemCount) + 1 }
+		}
+
+		return { ...containerProps, itemOverrides }
+	}
+
+	const startNewQuiz = () => {
+		setQuizHistory((prev) => [...prev, generateQuizQuestion()])
 		setHistoryIndex((prev) => prev + 1)
 		setCountdown(0)
 		setShowSuccess(false)
@@ -260,7 +289,7 @@ const App = () => {
 		}
 		const timer = setTimeout(checkMatch, 450)
 		return () => clearTimeout(timer)
-	}, [containerStyles, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess])
+	}, [containerStyles, items, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess])
 
 	// Updated RadioGroup with reduced py-1 vertical padding
 	const RadioGroup = ({ name, options, value, onChange, disabled, className = '' }) => (
@@ -345,6 +374,20 @@ const App = () => {
 							>
 								<Axis3d size={18} strokeWidth={2.5} />
 							</button>
+							{isQuizMode && (
+								<div className="flex items-center bg-white/80 rounded-xl p-1 border border-white/50 shadow-sm h-[38px] box-border" role="group" aria-label="Quiz difficulty">
+									{['easy', 'medium', 'hard'].map((level) => (
+										<button
+											key={level}
+											onClick={() => setQuizDifficulty(level)}
+											aria-pressed={quizDifficulty === level}
+											className={`px-2.5 py-1 rounded-lg text-[10px] font-bold capitalize transition-all ${quizDifficulty === level ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-700'}`}
+										>
+											{level}
+										</button>
+									))}
+								</div>
+							)}
 						</div>
 
 						{isQuizMode && (
@@ -458,11 +501,14 @@ const App = () => {
 						{/* QUIZ GHOSTS */}
 						{isQuizMode && quizTarget && (
 							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-300 z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
-								{items.slice(0, itemCount).map((item) => (
-									<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box' }}>
-										<span className="font-bold text-2xl opacity-0">{item.id}</span>
-									</div>
-								))}
+								{items.slice(0, itemCount).map((item) => {
+									const overrides = quizTarget.itemOverrides?.[item.id] || {}
+									return (
+										<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box', order: overrides.order ?? item.order, alignSelf: overrides.alignSelf ?? item.alignSelf }}>
+											<span className="font-bold text-2xl opacity-0">{item.id}</span>
+										</div>
+									)
+								})}
 							</div>
 						)}
 
@@ -475,7 +521,7 @@ const App = () => {
 									<div
 										key={item.id}
 										onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); setActiveTab('items') }}
-										className={`relative flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl ${selectedId === item.id ? 'ring-[4px] ring-blue-500 z-10' : 'hover:ring-2 hover:ring-blue-300'}`}
+										className={`relative flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl ${selectedId === item.id ? 'z-10' : ''}`}
 										style={{
 											width: item.width,
 											height: item.height,
@@ -486,8 +532,11 @@ const App = () => {
 											alignSelf: item.alignSelf,
 											flexGrow: item.flexGrow,
 											flexShrink: item.flexShrink,
+											order: item.order,
 											boxSizing: 'border-box',
 											border: isOutline ? `2px solid ${itemColor}` : undefined,
+											outline: selectedId === item.id ? '2px solid white' : undefined,
+											outlineOffset: selectedId === item.id ? '-2px' : undefined,
 										}}
 									>
 										<span className={`font-bold text-2xl ${isOutline ? 'opacity-0' : 'drop-shadow-sm'}`}>{item.id}</span>
@@ -498,7 +547,7 @@ const App = () => {
 
 						{/* QUIZ HUD */}
 						{isQuizMode && showHint && quizTarget && (
-							<div className="absolute top-6 left-1/2 -translate-x-1/2 pointer-events-none animate-in fade-in slide-in-from-top-4 z-40">
+							<div className="absolute top-6 left-1/2 -translate-x-1/2 pointer-events-none animate-in fade-in slide-in-from-top-4 z-40 flex flex-col items-center gap-1.5">
 								<div className="bg-black/80 text-white px-5 py-2 rounded-full text-[10px] font-mono backdrop-blur-md border border-white/20 shadow-2xl flex items-center gap-3">
 									<span className="font-bold uppercase tracking-widest text-[9px] text-pink-400">CHALLENGE #{historyIndex + 1}</span>
 									<div className="w-px h-3 bg-white/20" />
@@ -509,6 +558,17 @@ const App = () => {
 										<span>GAP: <b className="text-amber-400">{quizTarget.gap}</b></span>
 									</div>
 								</div>
+								{quizTarget.itemOverrides && Object.keys(quizTarget.itemOverrides).length > 0 && (
+									<div className="bg-black/80 text-white px-5 py-1.5 rounded-full text-[10px] font-mono backdrop-blur-md border border-white/20 shadow-2xl flex items-center gap-3">
+										{Object.entries(quizTarget.itemOverrides).map(([id, ov]) => (
+											<span key={id} className="flex gap-2 text-[9px]">
+												<b className="text-violet-400">#{id}</b>
+												{ov.alignSelf && <span>ALIGN-SELF: <b className="text-sky-400">{ov.alignSelf}</b></span>}
+												{ov.order !== undefined && <span>ORDER: <b className="text-amber-400">{ov.order}</b></span>}
+											</span>
+										))}
+									</div>
+								)}
 							</div>
 						)}
 					</div>
@@ -575,7 +635,7 @@ const App = () => {
 									<h3 className="font-bold text-lg text-slate-800 leading-none">Item {selectedId > 0 ? selectedId : 1} Overrides</h3>
 								</div>
 
-								<div className="flex flex-wrap items-end gap-x-8 gap-y-4">
+								<div className="flex flex-col gap-4">
 									<ControlGroup label="Align Self" defaultValue="auto" className="mb-0">
 										<RadioGroup
 											name="alignSelf" options={flexValues.alignSelf}
@@ -598,6 +658,14 @@ const App = () => {
 												type="number" min="0" max="10"
 												value={items[(selectedId > 0 ? selectedId : 1) - 1].flexShrink}
 												onChange={(e) => { const newItems = [...items]; newItems[(selectedId > 0 ? selectedId : 1) - 1].flexShrink = parseInt(e.target.value) || 0; setItems(newItems) }}
+												className="w-14 px-3 py-1 bg-white border border-slate-200 rounded-lg text-center font-bold text-[13px] shadow-sm focus:ring-2 focus:ring-blue-500 h-[30px] box-border"
+											/>
+										</ControlGroup>
+										<ControlGroup label="Order" defaultValue="0" className="mb-0">
+											<input
+												type="number" min="-99" max="99"
+												value={items[(selectedId > 0 ? selectedId : 1) - 1].order}
+												onChange={(e) => { const newItems = [...items]; newItems[(selectedId > 0 ? selectedId : 1) - 1].order = parseInt(e.target.value) || 0; setItems(newItems) }}
 												className="w-14 px-3 py-1 bg-white border border-slate-200 rounded-lg text-center font-bold text-[13px] shadow-sm focus:ring-2 focus:ring-blue-500 h-[30px] box-border"
 											/>
 										</ControlGroup>
