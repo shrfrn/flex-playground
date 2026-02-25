@@ -1,11 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
 	Settings, Play, CheckCircle, Code, Plus, Minus,
-	RotateCcw, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
+	Copy, Check, Undo2, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
 	ChevronLeft, ChevronRight, Pause, PlayCircle, SkipForward,
 	SlidersHorizontal, FileCode, Box, GraduationCap, Gamepad2,
 	ArrowRight, ArrowDown, Axis3d,
 } from 'lucide-react'
+
+const DEFAULT_CONTAINER_STYLES = {
+	display: 'flex',
+	flexDirection: 'row',
+	justifyContent: 'start',
+	alignItems: 'stretch',
+	gap: '10px',
+}
+
+const DEFAULT_ITEMS = [
+	{ id: 1, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '60px', height: '60px' },
+	{ id: 2, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '80px', height: '50px' },
+	{ id: 3, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '50px', height: '80px' },
+	{ id: 4, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '70px', height: '40px' },
+	{ id: 5, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '90px', height: '70px' },
+]
+
+function generateContainerCssFromDefaults() {
+	const c = DEFAULT_CONTAINER_STYLES
+	let css = `.container {\n  display: ${c.display};\n`
+	if (c.display === 'flex') {
+		css += `  flex-direction: ${c.flexDirection};\n`
+		css += `  justify-content: ${c.justifyContent};\n`
+		css += `  align-items: ${c.alignItems};\n`
+		css += `  gap: ${c.gap};\n`
+	}
+	css += `}\n`
+	return css.trim()
+}
+
+function generateItemCssFromDefaults(itemIndex) {
+	const item = DEFAULT_ITEMS[itemIndex - 1]
+	if (!item) return ''
+	return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n}\n`
+}
 
 const App = () => {
 	// --- State Definitions ---
@@ -28,26 +63,21 @@ const App = () => {
 	const QUIZ_DELAY_MS = 3000
 
 	// Container Styles
-	const [containerStyles, setContainerStyles] = useState({
-		display: 'flex',
-		flexDirection: 'row',
-		justifyContent: 'start',
-		alignItems: 'stretch',
-		gap: '10px',
-	})
+	const [containerStyles, setContainerStyles] = useState({ ...DEFAULT_CONTAINER_STYLES })
 
 	// Individual Item Styles
-	const [items, setItems] = useState([
-		{ id: 1, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '60px', height: '60px' },
-		{ id: 2, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '80px', height: '50px' },
-		{ id: 3, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '50px', height: '80px' },
-		{ id: 4, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '70px', height: '40px' },
-		{ id: 5, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, width: '90px', height: '70px' },
-	])
+	const [items, setItems] = useState(DEFAULT_ITEMS.map((item) => ({ ...item })))
 
 	const [cssCode, setCssCode] = useState('')
+	const [itemCodes, setItemCodes] = useState(() => Array(5).fill(''))
+	const [containerCodeDirty, setContainerCodeDirty] = useState(false)
+	const [itemCodeDirty, setItemCodeDirty] = useState(() => Array(5).fill(false))
+	const [codeResetKey, setCodeResetKey] = useState(0)
+	const [copyFeedback, setCopyFeedback] = useState(false)
 	const realContainerRef = useRef(null)
 	const ghostContainerRef = useRef(null)
+	const lastUpdateFromCodeEditorRef = useRef(false)
+	const lastUpdateFromItemCodeEditorRef = useRef(false)
 
 	const flexValues = {
 		flexDirection: ['row', 'column', 'row-reverse', 'column-reverse'],
@@ -56,43 +86,99 @@ const App = () => {
 		alignSelf: ['auto', 'start', 'end', 'center', 'baseline', 'stretch'],
 	}
 
-	const generateCss = () => {
+	const generateContainerCss = () => {
 		let css = `.container {\n  display: ${containerStyles.display};\n`
 		if (containerStyles.display === 'flex') {
-			const getVal = (v) => (v === 'start' ? 'flex-start' : v === 'end' ? 'flex-end' : v)
 			css += `  flex-direction: ${containerStyles.flexDirection};\n`
-			css += `  justify-content: ${getVal(containerStyles.justifyContent)};\n`
-			css += `  align-items: ${getVal(containerStyles.alignItems)};\n`
+			css += `  justify-content: ${containerStyles.justifyContent};\n`
+			css += `  align-items: ${containerStyles.alignItems};\n`
 			css += `  gap: ${containerStyles.gap};\n`
 		}
-		css += `}\n\n`
-
-		items.slice(0, itemCount).forEach((item, idx) => {
-			const hasOverrides = item.alignSelf !== 'auto' || item.flexGrow !== 0 || item.flexShrink !== 1
-			if (hasOverrides) {
-				css += `.item-${idx + 1} {\n`
-				if (item.alignSelf !== 'auto') {
-					const val = item.alignSelf === 'start' ? 'flex-start' : item.alignSelf === 'end' ? 'flex-end' : item.alignSelf
-					css += `  align-self: ${val};\n`
-				}
-				if (item.flexGrow !== 0) css += `  flex-grow: ${item.flexGrow};\n`
-				if (item.flexShrink !== 1) css += `  flex-shrink: ${item.flexShrink};\n`
-				css += `}\n\n`
-			}
-		})
+		css += `}\n`
 		return css.trim()
 	}
 
+	const generateItemCss = (itemIndex) => {
+		const item = items[itemIndex - 1]
+		if (!item) return ''
+		return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n}\n`
+	}
+
 	useEffect(() => {
-		setCssCode(generateCss())
+		if (lastUpdateFromCodeEditorRef.current) {
+			lastUpdateFromCodeEditorRef.current = false
+		} else {
+			setCssCode(generateContainerCss())
+			setContainerCodeDirty(false)
+		}
+		if (lastUpdateFromItemCodeEditorRef.current) {
+			lastUpdateFromItemCodeEditorRef.current = false
+		} else {
+			setItemCodes(items.slice(0, 5).map((_, idx) => generateItemCss(idx + 1)))
+			setItemCodeDirty(() => Array(5).fill(false))
+		}
 	}, [containerStyles, items, itemCount])
+
+	const [activeCodeTab, setActiveCodeTab] = useState('container')
+
+	useEffect(() => {
+		if (typeof activeCodeTab === 'number' && activeCodeTab > itemCount) setActiveCodeTab('container')
+	}, [itemCount])
+
+	const getDisplayedCode = () => {
+		if (activeCodeTab === 'container') return cssCode
+		const idx = activeCodeTab - 1
+		return itemCodes[idx] !== undefined && itemCodes[idx] !== '' ? itemCodes[idx] : generateItemCss(activeCodeTab)
+	}
+
+	const resetContainerCode = () => {
+		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
+		setCssCode(generateContainerCssFromDefaults())
+		setContainerCodeDirty(false)
+		setCodeResetKey(k => k + 1)
+	}
+	const resetItemCode = (itemIndex) => {
+		setItems(prev => prev.map((it, i) => (i === itemIndex - 1 ? { ...DEFAULT_ITEMS[itemIndex - 1] } : it)))
+		setItemCodes(prev => {
+			const next = [...prev]
+			next[itemIndex - 1] = generateItemCssFromDefaults(itemIndex)
+			return next
+		})
+		setItemCodeDirty(prev => {
+			const next = [...prev]
+			next[itemIndex - 1] = false
+			return next
+		})
+		setCodeResetKey(k => k + 1)
+	}
+
+	const parseItemCss = (val, itemIndex) => {
+		const idx = itemIndex - 1
+		if (idx < 0 || idx >= items.length) return
+		const newItems = [...items]
+		const item = { ...newItems[idx] }
+		const widthMatch = val.match(/width:\s*([^;\n]+)/)
+		if (widthMatch) item.width = widthMatch[1].trim()
+		const heightMatch = val.match(/height:\s*([^;\n]+)/)
+		if (heightMatch) item.height = heightMatch[1].trim()
+		const alignMatch = val.match(/align-self:\s*([\w-]+)/i)
+		if (alignMatch) item.alignSelf = alignMatch[1].toLowerCase().replace(/^flex-/, '') || item.alignSelf
+		const growMatch = val.match(/flex-grow:\s*(\d+)/)
+		if (growMatch) item.flexGrow = parseInt(growMatch[1], 10)
+		const shrinkMatch = val.match(/flex-shrink:\s*(\d+)/)
+		if (shrinkMatch) item.flexShrink = parseInt(shrinkMatch[1], 10)
+		newItems[idx] = item
+		setItems(newItems)
+	}
 
 	const handleCssEdit = (e) => {
 		const val = e.target.value
+		lastUpdateFromCodeEditorRef.current = true
+		setContainerCodeDirty(true)
 		setCssCode(val)
 		const newContainer = { ...containerStyles }
-		const displayMatch = val.match(/display:\s*(block|flex)/)
-		if (displayMatch) newContainer.display = displayMatch[1]
+		const displayMatch = val.match(/display:\s*(block|flex)/i)
+		if (displayMatch) newContainer.display = displayMatch[1].toLowerCase()
 		const dirMatch = val.match(/flex-direction:\s*([\w-]+)/)
 		if (dirMatch) newContainer.flexDirection = dirMatch[1].replace('flex-', '')
 		const justifyMatch = val.match(/justify-content:\s*([\w-]+)/)
@@ -102,6 +188,22 @@ const App = () => {
 		const gapMatch = val.match(/gap:\s*(\d+px)/)
 		if (gapMatch) newContainer.gap = gapMatch[1]
 		setContainerStyles(newContainer)
+	}
+
+	const handleItemCssEdit = (e, itemIndex) => {
+		const val = e.target.value
+		lastUpdateFromItemCodeEditorRef.current = true
+		setItemCodeDirty(prev => {
+			const next = [...prev]
+			next[itemIndex - 1] = true
+			return next
+		})
+		setItemCodes(prev => {
+			const next = [...prev]
+			next[itemIndex - 1] = val
+			return next
+		})
+		parseItemCss(val, itemIndex)
 	}
 
 	const startNewQuiz = () => {
@@ -219,8 +321,8 @@ const App = () => {
 			<main className="max-w-7xl mx-auto space-y-4">
 				<div className="relative aspect-[21/8] flex flex-col w-full bg-slate-200 rounded-[2rem] overflow-hidden shadow-inner border-[10px] border-white">
 					<div className="bg-white/60 backdrop-blur-md border-b border-white px-6 py-2 flex items-center justify-between min-h-[56px] z-30">
-						<div className="flex items-center">
-							{/* Box Count & Axis Unified Chooser */}
+						<div className="flex items-center gap-2">
+							{/* Box Count Chooser */}
 							<div className="flex items-center bg-white/80 rounded-xl p-1 border border-white/50 shadow-sm h-[38px] box-border">
 								<div className="flex items-center gap-2 px-2">
 									<button onClick={() => setItemCount(Math.max(1, itemCount - 1))} className="p-1 bg-white rounded-lg shadow-sm hover:scale-110 active:scale-95 transition-all text-slate-400 hover:text-slate-600"><Minus size={12}/></button>
@@ -228,18 +330,15 @@ const App = () => {
 									<button onClick={() => setItemCount(Math.min(5, itemCount + 1))} className="p-1 bg-white rounded-lg shadow-sm hover:scale-110 active:scale-95 transition-all text-slate-400 hover:text-slate-600"><Plus size={12}/></button>
 									<span className="text-[9px] font-bold uppercase text-slate-400 ml-1">Boxes</span>
 								</div>
-
-								{/* Visual Divider */}
-								<div className="w-px h-4 bg-slate-200 mx-1" />
-
-								<button
-									onClick={() => setShowAxes(!showAxes)}
-									className={`flex items-center justify-center px-2.5 h-full rounded-lg transition-all ${showAxes ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:bg-white hover:text-slate-600'}`}
-									title="Toggle Axes Overlay"
-								>
-									<Axis3d size={18} strokeWidth={2.5} />
-								</button>
 							</div>
+							{/* Axis Toggle - separate icon */}
+							<button
+								onClick={() => setShowAxes(!showAxes)}
+								className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-all ${showAxes ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
+								title="Toggle Axes Overlay"
+							>
+								<Axis3d size={18} strokeWidth={2.5} />
+							</button>
 						</div>
 
 						{isQuizMode && (
@@ -263,33 +362,38 @@ const App = () => {
 												</button>
 												<button onClick={skipToNext} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[9px] font-bold shadow-md">Next</button>
 											</div>
+											<div className="w-px h-3 bg-slate-300 mx-0.5" />
+											<div className="flex items-center gap-2">
+												<span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Vis {Math.round(itemOpacity * 100)}%</span>
+												<input type="range" min="0.1" max="1" step="0.1" value={itemOpacity} onChange={(e) => setItemOpacity(parseFloat(e.target.value))} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+											</div>
 										</div>
 									) : (
 										<div className="flex items-center gap-2 bg-white/40 p-0.5 rounded-xl border border-white/30">
 											<div className="flex items-center gap-0.5">
 												<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600" title="Back"><ChevronLeft size={14} /></button>
-												<button onClick={() => setIsPaused(!isPaused)} className="p-1.5 hover:bg-white rounded-lg transition-all text-slate-600">{isPaused ? <PlayCircle size={14} /> : <Pause size={14} />}</button>
+												<span className="px-2 py-1 text-[11px] font-semibold text-slate-600 min-w-[4rem] text-center" aria-live="polite">
+													Question {historyIndex + 1} of {quizHistory.length || 1}
+												</span>
 												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600"><ChevronRight size={14} /></button>
 											</div>
 											<div className="w-px h-3 bg-slate-300 mx-0.5" />
 											<button onClick={() => setShowHint(!showHint)} className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${showHint ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
 												{showHint ? <Eye size={12} /> : <EyeOff size={12} />} Hint
 											</button>
+											<div className="w-px h-3 bg-slate-300 mx-0.5" />
+											<div className="flex items-center gap-2">
+												<span className="text-[8px] font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Vis {Math.round(itemOpacity * 100)}%</span>
+												<input type="range" min="0.1" max="1" step="0.1" value={itemOpacity} onChange={(e) => setItemOpacity(parseFloat(e.target.value))} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+											</div>
 										</div>
 									)}
 								</div>
 
-								<div className="flex items-center gap-4 min-w-[240px] justify-end">
-									<div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 rounded-xl border border-amber-100 shadow-sm">
+								<div className="flex items-center min-w-[120px] justify-end">
+									<div className="flex items-center gap-1.5 px-3 h-[38px] box-border bg-amber-50 text-amber-700 rounded-xl border border-amber-100 shadow-sm">
 										<Award size={12} />
 										<span className="text-[10px] font-black tracking-tight">{score} Pts</span>
-									</div>
-
-									<div className="flex flex-col items-end gap-0.5">
-										<span className="text-[8px] font-bold uppercase tracking-widest text-slate-400">Vis {Math.round(itemOpacity * 100)}%</span>
-										<div className="flex items-center gap-2">
-											<input type="range" min="0.1" max="1" step="0.1" value={itemOpacity} onChange={(e) => setItemOpacity(parseFloat(e.target.value))} className="w-16 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-										</div>
 									</div>
 								</div>
 							</>
@@ -467,11 +571,75 @@ const App = () => {
 
 						{activeTab === 'code' && (
 							<div className="bg-slate-900 rounded-[1rem] overflow-hidden flex flex-col min-h-[280px] animate-in fade-in duration-300">
-								<div className="flex items-center justify-between px-6 py-3 bg-slate-800/80 border-b border-slate-800">
-									<span className="text-slate-400 text-xs font-mono flex items-center gap-2"><FileCode size={14} /> styles.css</span>
-									<button onClick={() => setCssCode(generateCss())} className="text-slate-500 hover:text-white transition-colors p-1.5 hover:bg-slate-700 rounded-lg"><RotateCcw size={16} /></button>
+								<div className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-800/80 border-b border-slate-800 flex-wrap">
+									<div className="flex items-center flex-wrap">
+										<span className="text-slate-400 text-xs font-mono flex items-center gap-1.5 w-[8.5rem] shrink-0"><FileCode size={12} /> {activeCodeTab === 'container' ? 'container' : `item-${activeCodeTab}`}.css</span>
+										<div className="flex items-center gap-2 flex-wrap ml-10">
+											<div className="relative inline-block">
+												<button onClick={() => setActiveCodeTab('container')} className={`block px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-colors text-left ${activeCodeTab === 'container' ? 'text-emerald-400 bg-slate-900/80' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'}`}>
+													Container
+												</button>
+												{containerCodeDirty && (
+													<span
+														role="button"
+														tabIndex={0}
+														onClick={(e) => { e.stopPropagation(); e.preventDefault(); resetContainerCode() }}
+														onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); resetContainerCode() } }}
+														className="absolute -top-0.5 -right-1 inline-flex items-center justify-center p-0.5 rounded-full bg-slate-900 text-emerald-400 shadow-inner border border-slate-400 hover:bg-slate-700 hover:text-emerald-300 transition-colors cursor-pointer z-10"
+														title="Reset to default"
+														aria-label="Reset container code to default"
+													>
+														<Undo2 size={12} strokeWidth={2.5} />
+													</span>
+												)}
+											</div>
+											{items.slice(0, itemCount).map((item) => (
+												<div key={item.id} className="relative inline-block">
+													<button onClick={() => setActiveCodeTab(item.id)} className={`block px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-colors text-left ${activeCodeTab === item.id ? 'text-emerald-400 bg-slate-900/80' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'}`}>
+														Item {item.id}
+													</button>
+													{itemCodeDirty[item.id - 1] && (
+														<span
+															role="button"
+															tabIndex={0}
+															onClick={(e) => { e.stopPropagation(); e.preventDefault(); resetItemCode(item.id) }}
+															onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); resetItemCode(item.id) } }}
+															className="absolute -top-0.5 -right-1 inline-flex items-center justify-center p-0.5 rounded-full bg-slate-900 text-emerald-400 shadow-inner border border-slate-400 hover:bg-slate-700 hover:text-emerald-300 transition-colors cursor-pointer z-10"
+															title="Reset to default"
+															aria-label={`Reset item ${item.id} code to default`}
+														>
+															<Undo2 size={12} strokeWidth={2.5} />
+														</span>
+													)}
+												</div>
+											))}
+										</div>
+									</div>
+									<div className="flex items-center gap-1 shrink-0">
+										<button
+											onClick={async () => {
+												try {
+													await navigator.clipboard.writeText(getDisplayedCode())
+													setCopyFeedback(true)
+													setTimeout(() => setCopyFeedback(false), 2000)
+												} catch (_) {}
+											}}
+											className={`flex items-center gap-1.5 transition-colors p-1.5 rounded-lg ${copyFeedback ? 'text-emerald-400 bg-emerald-500/20' : 'text-slate-500 hover:text-white hover:bg-slate-700'}`}
+											title={copyFeedback ? 'Copied!' : 'Copy to clipboard'}
+											aria-label={copyFeedback ? 'Copied to clipboard' : 'Copy code to clipboard'}
+										>
+											{copyFeedback ? <Check size={16} /> : <Copy size={16} />}
+											{copyFeedback && <span className="text-[10px] font-bold text-emerald-400">Copied!</span>}
+										</button>
+									</div>
 								</div>
-								<textarea value={cssCode} onChange={handleCssEdit} spellCheck="false" className="flex-grow w-full p-6 bg-transparent text-emerald-400 font-mono text-base resize-none outline-none leading-relaxed" />
+								<textarea
+									key={`${activeCodeTab}-${codeResetKey}`}
+									value={getDisplayedCode()}
+									onChange={activeCodeTab === 'container' ? handleCssEdit : (e) => handleItemCssEdit(e, activeCodeTab)}
+									spellCheck="false"
+									className="flex-grow w-full p-6 bg-transparent text-emerald-400 font-mono text-base resize-none outline-none leading-relaxed"
+								/>
 							</div>
 						)}
 					</div>
