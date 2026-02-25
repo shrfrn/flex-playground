@@ -500,7 +500,7 @@ const App = () => {
 
 						{/* QUIZ GHOSTS */}
 						{isQuizMode && quizTarget && (
-							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-300 z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
+							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-flex z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
 								{items.slice(0, itemCount).map((item) => {
 									const overrides = quizTarget.itemOverrides?.[item.id] || {}
 									return (
@@ -513,7 +513,7 @@ const App = () => {
 						)}
 
 						{/* REAL ITEMS */}
-						<div ref={realContainerRef} className="absolute inset-0 transition-all duration-300 z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
+						<div ref={realContainerRef} className="absolute inset-0 transition-flex z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
 							{items.slice(0, itemCount).map((item) => {
 								const itemColor = `hsl(${item.id * 50 + 200}, 70%, 60%)`
 								const isOutline = outlineOnly
@@ -768,6 +768,11 @@ const App = () => {
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .transition-flex {
+          transition-property: flex-direction, justify-content, align-items, gap, opacity;
+          transition-duration: 300ms;
+          transition-timing-function: ease;
+        }
       `}</style>
 		</div>
 	)
