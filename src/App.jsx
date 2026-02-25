@@ -574,11 +574,12 @@ const App = () => {
 						)}
 
 						{activeTab === 'code' && (
-							<div className="bg-slate-900 rounded-[1rem] overflow-visible flex flex-col min-h-[280px] animate-in fade-in duration-300 pt-3">
-								<div className="flex items-center justify-between gap-4 px-4 py-3 bg-slate-800/80 border-b border-slate-800 -mt-3 overflow-visible">
-									<div className="flex items-end flex-nowrap overflow-x-auto min-w-0 scrollbar-hide min-h-[3.5rem]">
-										<span className="text-slate-400 text-xs font-mono flex items-center gap-1.5 w-[8.5rem] shrink-0"><FileCode size={12} /> {activeCodeTab === 'container' ? 'container' : `item-${activeCodeTab}`}.css</span>
-										<div className="flex items-center gap-2 flex-nowrap ml-10 shrink-0">
+							<div className="bg-slate-900 rounded-[1rem] overflow-visible flex flex-col min-h-[280px] animate-in fade-in duration-300 pt-1">
+								<div className="flex items-center justify-between gap-4 px-4 py-2 bg-slate-800/80 border-b border-slate-800 -mt-1 overflow-visible rounded-t-[1rem]">
+									<div className="flex items-center flex-nowrap overflow-x-auto min-w-0 scrollbar-hide min-h-[2.25rem]">
+										<div className="flex items-center gap-2 flex-nowrap shrink-0">
+											<span className="text-slate-400 text-xs font-mono flex items-center gap-1.5 w-[8.5rem] shrink-0"><FileCode size={12} /> {activeCodeTab === 'container' ? 'container' : `item-${activeCodeTab}`}.css</span>
+											<div className="flex items-center gap-2 flex-nowrap ml-10 shrink-0">
 											<div className="relative inline-block">
 												<button onClick={() => setActiveCodeTab('container')} className={`block px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-colors text-left ${activeCodeTab === 'container' ? 'text-emerald-400 bg-slate-900/80' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'}`}>
 													Container
@@ -617,6 +618,7 @@ const App = () => {
 													)}
 												</div>
 											))}
+											</div>
 										</div>
 									</div>
 									<div className="flex items-center gap-1 shrink-0">
@@ -637,13 +639,15 @@ const App = () => {
 										</button>
 									</div>
 								</div>
-								<textarea
-									key={`${activeCodeTab}-${codeResetKey}`}
-									value={getDisplayedCode()}
-									onChange={activeCodeTab === 'container' ? handleCssEdit : (e) => handleItemCssEdit(e, activeCodeTab)}
-									spellCheck="false"
-									className="flex-grow w-full p-6 bg-transparent text-emerald-400 font-mono text-base resize-none outline-none leading-relaxed"
-								/>
+								<div className="flex-grow rounded-b-[1rem] overflow-hidden bg-slate-900">
+									<textarea
+										key={`${activeCodeTab}-${codeResetKey}`}
+										value={getDisplayedCode()}
+										onChange={activeCodeTab === 'container' ? handleCssEdit : (e) => handleItemCssEdit(e, activeCodeTab)}
+										spellCheck="false"
+										className="w-full h-full min-h-[200px] p-6 bg-transparent text-emerald-400 font-mono text-base resize-none outline-none leading-relaxed block"
+									/>
+								</div>
 							</div>
 						)}
 					</div>
