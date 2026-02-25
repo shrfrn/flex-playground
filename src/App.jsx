@@ -243,6 +243,8 @@ const App = () => {
 	}
 
 	const startNewQuiz = () => {
+		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
+		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
 		setQuizHistory((prev) => [...prev, generateQuizQuestion()])
 		setHistoryIndex((prev) => prev + 1)
 		setCountdown(0)
@@ -527,7 +529,7 @@ const App = () => {
 											height: item.height,
 											backgroundColor: isOutline ? 'transparent' : itemColor,
 											opacity: isOutline ? 1 : itemOpacity,
-											color: isOutline ? 'transparent' : 'white',
+											color: !isOutline ? 'white' : undefined,
 											borderRadius: '16px',
 											alignSelf: item.alignSelf,
 											flexGrow: item.flexGrow,
@@ -539,7 +541,7 @@ const App = () => {
 											outlineOffset: selectedId === item.id ? '-2px' : undefined,
 										}}
 									>
-										<span className={`font-bold text-2xl ${isOutline ? 'opacity-0' : 'drop-shadow-sm'}`}>{item.id}</span>
+										<span className={`font-bold text-2xl ${isOutline ? 'text-slate-500 opacity-50' : 'drop-shadow-sm'}`}>{item.id}</span>
 									</div>
 								)
 							})}
