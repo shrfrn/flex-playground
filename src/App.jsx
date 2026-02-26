@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-	Settings, Play, CheckCircle, Code, Plus, Minus,
+	Settings, Play, Code, Plus, Minus,
 	Copy, Check, Undo2, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
 	ChevronLeft, ChevronRight, Pause, PlayCircle, SkipForward,
 	SlidersHorizontal, FileCode, Box, GraduationCap, Gamepad2,
-	ArrowRight, ArrowDown, Axis3d,
+	ArrowRight, ArrowDown, Axis3d, GripVertical, Info,
 } from 'lucide-react'
 
 const DEFAULT_CONTAINER_STYLES = {
@@ -70,6 +70,7 @@ const App = () => {
 	const [hintCount, setHintCount] = useState(0)
 	const [revealedHints, setRevealedHints] = useState([])
 	const [showSolutionPrompt, setShowSolutionPrompt] = useState(false)
+	const [showSolutionConfirm, setShowSolutionConfirm] = useState(false)
 	const [showSolution, setShowSolution] = useState(false)
 
 	const QUIZ_DELAY_MS = 3000
@@ -90,6 +91,9 @@ const App = () => {
 	const ghostContainerRef = useRef(null)
 	const lastUpdateFromCodeEditorRef = useRef(false)
 	const lastUpdateFromItemCodeEditorRef = useRef(false)
+	const [hintPopoverPosition, setHintPopoverPosition] = useState(null)
+	const hintPopoverRef = useRef(null)
+	const hintDragRef = useRef(null)
 
 	const flexValues = {
 		flexDirection: ['row', 'column', 'row-reverse', 'column-reverse'],
@@ -338,7 +342,9 @@ const App = () => {
 		setHintCount(0)
 		setRevealedHints([])
 		setShowSolutionPrompt(false)
+		setShowSolutionConfirm(false)
 		setShowSolution(false)
+		setHintPopoverPosition(null)
 	}
 
 	const startQuizSession = () => {
@@ -353,7 +359,9 @@ const App = () => {
 		setHintCount(0)
 		setRevealedHints([])
 		setShowSolutionPrompt(false)
+		setShowSolutionConfirm(false)
 		setShowSolution(false)
+		setHintPopoverPosition(null)
 		startNewQuiz()
 	}
 
@@ -434,21 +442,10 @@ const App = () => {
 	}
 
 	const buildHintText = key => {
-		if (key === 'direction') {
-			const isColumn = quizTarget.flexDirection.includes('column')
-			const isReversed = quizTarget.flexDirection.includes('reverse')
-			if (isReversed) return `Consider changing the flex direction — try a reversed ${isColumn ? 'column' : 'row'} layout.`
-			return `Consider changing the flex direction — try a ${isColumn ? 'column' : 'row'}-based layout.`
-		}
-
-		if (key === 'justify') return 'Consider adjusting how items are justified along the main axis.'
-		if (key === 'align') return 'Consider changing how items are aligned along the cross axis.'
-
-		if (key === 'gap') {
-			const targetGap = parseInt(quizTarget.gap)
-			const currentGap = parseInt(containerStyles.gap)
-			return `Consider ${targetGap > currentGap ? 'increasing' : 'decreasing'} the gap between items.`
-		}
+		if (key === 'direction') return 'Consider changing the container\'s flex-direction property.'
+		if (key === 'justify') return 'Consider adjusting the container\'s justify-content property.'
+		if (key === 'align') return 'Consider changing the container\'s align-items property.'
+		if (key === 'gap') return 'Consider adjusting the container\'s gap property.'
 
 		const match = key.match(/^(\w+)-(\d+)$/)
 		if (!match) return key
@@ -456,8 +453,8 @@ const App = () => {
 
 		if (prop === 'alignSelf') {
 			const ov = quizTarget.itemOverrides?.[id]
-			if (ov?.alignSelf !== undefined) return `Consider changing the alignment of item #${id}.`
-			return `Item #${id} doesn't need a custom alignment — consider resetting it.`
+			if (ov?.alignSelf !== undefined) return `Consider changing item #${id}'s align-self property.`
+			return `Item #${id} doesn't need a custom align-self — consider resetting it.`
 		}
 
 		if (prop === 'order') {
@@ -481,7 +478,7 @@ const App = () => {
 		return key
 	}
 
-	const handleHintClick = () => {
+	function revealNextHint() {
 		if (!isQuizMode || !quizTarget || quizCompleted) return
 
 		const activeKeys = getActiveHintKeys()
@@ -490,15 +487,56 @@ const App = () => {
 
 		if (unrevealedKeys.length === 0 || hintCount >= 3) {
 			setShowSolutionPrompt(true)
-			setShowHint(true)
 			return
 		}
 
 		const nextKey = unrevealedKeys[0]
 		setRevealedHints(prev => [...prev, { key: nextKey, text: buildHintText(nextKey) }])
-		setHintCount(prev => prev + 1)
-		setShowSolutionPrompt(false)
-		setShowHint(true)
+
+		const newCount = hintCount + 1
+		setHintCount(newCount)
+
+		if (newCount >= 3) setShowSolutionPrompt(true)
+		else setShowSolutionPrompt(false)
+	}
+
+	const handleHintClick = () => {
+		if (!isQuizMode || !quizTarget || quizCompleted) return
+
+		const opening = !showHint
+		setShowHint(prev => !prev)
+
+		if (opening && revealedHints.length === 0) {
+			const activeKeys = getActiveHintKeys()
+			const revealedKeys = revealedHints.map(h => h.key)
+			const unrevealedKeys = [...activeKeys].filter(k => !revealedKeys.includes(k))
+			if (unrevealedKeys.length > 0 && hintCount < 3) revealNextHint()
+			else if (unrevealedKeys.length === 0 || hintCount >= 3) setShowSolutionPrompt(true)
+		}
+	}
+
+	function onHintPopoverDragStart(e) {
+		if (e.target.closest('button')) return
+		const el = hintPopoverRef.current
+		if (!el) return
+		const rect = el.getBoundingClientRect()
+		setHintPopoverPosition({ left: rect.left, top: rect.top })
+		hintDragRef.current = { startX: e.clientX, startY: e.clientY, startLeft: rect.left, startTop: rect.top }
+		const onMove = (e) => {
+			const d = hintDragRef.current
+			if (!d) return
+			setHintPopoverPosition({
+				left: d.startLeft + (e.clientX - d.startX),
+				top: d.startTop + (e.clientY - d.startY),
+			})
+		}
+		const onUp = () => {
+			window.removeEventListener('mousemove', onMove)
+			window.removeEventListener('mouseup', onUp)
+			hintDragRef.current = null
+		}
+		window.addEventListener('mousemove', onMove)
+		window.addEventListener('mouseup', onUp)
 	}
 
 	useEffect(() => {
@@ -874,18 +912,35 @@ const App = () => {
 							}))
 
 							return (
-							<div className="absolute bottom-4 right-4 z-40 max-w-sm">
+							<div
+								ref={hintPopoverRef}
+								className="z-40 max-w-sm"
+								style={hintPopoverPosition
+									? { position: 'fixed', left: hintPopoverPosition.left, top: hintPopoverPosition.top }
+									: { position: 'absolute', bottom: '1rem', right: '1rem' }}
+							>
 								<div className="relative bg-white/95 border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-xs text-slate-700">
-									<div className="flex items-center justify-between gap-2 mb-1.5">
+									<div
+										className="flex items-center justify-between gap-2 mb-1.5 cursor-grab active:cursor-grabbing"
+										onMouseDown={onHintPopoverDragStart}
+										role="presentation"
+									>
 										<div className="flex items-center gap-1.5">
+											<GripVertical size={12} className="text-slate-300 shrink-0" aria-hidden />
 											<Eye className="text-indigo-500" size={12} />
 											<span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-												{hintEntries.length === 0 ? 'No hints needed' : `Hint ${hintEntries.length} of ${Math.min(hintEntries.length + remaining, 3)}`}
+												{hintEntries.length === 0 ? 'No hints needed' : `${hintEntries.length} / 3 hints used`}
+											</span>
+											<span className="relative group">
+												<Info size={11} className="text-slate-300 hover:text-slate-500 cursor-help transition-colors" />
+												<span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-48 rounded-lg bg-slate-800 text-white text-[10px] leading-snug px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg z-50">
+													Hints point to one known solution. There may be other valid approaches.
+												</span>
 											</span>
 										</div>
 										<button
 											type="button"
-											onClick={() => setShowHint(false)}
+											onClick={() => { setShowHint(false); setShowSolutionConfirm(false) }}
 											className="text-slate-400 hover:text-slate-600 text-[10px] font-bold px-1 rounded-md hover:bg-slate-100"
 											aria-label="Close hint"
 										>
@@ -894,41 +949,59 @@ const App = () => {
 									</div>
 
 									{hintEntries.length > 0 ? (
-										<ul className="space-y-1.5">
-											{hintEntries.map((entry, i) => (
-												<li key={i} className={`leading-snug flex items-start gap-1.5 ${entry.resolved ? 'text-emerald-600' : ''}`}>
-													{entry.resolved
-														? <CheckCircle size={14} className="shrink-0 mt-0.5 text-emerald-500" />
-														: <span className="shrink-0 w-[14px] mt-0.5 text-center text-slate-300 font-bold">•</span>}
-													<span className={entry.resolved ? 'line-through opacity-70' : ''}>{entry.text}</span>
-												</li>
-											))}
-										</ul>
+										<>
+											<ul className="space-y-1.5">
+												{hintEntries.map((entry, i) => (
+													<li key={i} className={`leading-snug flex items-start gap-1.5 ${entry.resolved ? 'text-emerald-600' : ''}`}>
+														{entry.resolved
+															? <Check size={14} className="shrink-0 mt-0.5 text-emerald-500" />
+															: <span className="shrink-0 w-[14px] mt-0.5 text-center text-slate-300 font-bold">•</span>}
+														<span>{entry.text}</span>
+													</li>
+												))}
+											</ul>
+										</>
 									) : (
 										<p className="leading-snug text-emerald-600">Everything looks correct so far!</p>
 									)}
 
-									{showSolutionPrompt && !showSolution && (
-										<div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
-											<span className="text-[10px] text-slate-500">
-												You&apos;ve used all hints. Show the solution?
-											</span>
-											<div className="flex items-center gap-1">
+									{!showSolution && (remaining > 0 && hintCount < 3 || showSolutionPrompt || hintCount >= 3) && (
+										<div className="mt-2 pt-2 border-t border-slate-200 flex justify-end">
+											{showSolutionConfirm ? (
+												<span className="inline-flex items-center gap-1.5 text-[10px] text-slate-500">
+													Are you sure?
+													<button
+														type="button"
+														onClick={() => { setShowSolution(true); setShowSolutionConfirm(false) }}
+														className="px-1.5 py-0.5 rounded bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
+													>
+														Yes
+													</button>
+													<button
+														type="button"
+														onClick={() => setShowSolutionConfirm(false)}
+														className="px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-500 hover:bg-slate-200"
+													>
+														Cancel
+													</button>
+												</span>
+											) : hintCount >= 3 || showSolutionPrompt ? (
 												<button
 													type="button"
-													onClick={() => setShowSolution(true)}
-													className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-semibold hover:bg-indigo-700"
+													onClick={() => setShowSolutionConfirm(true)}
+													className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-semibold hover:bg-indigo-700"
 												>
-													Show
+													Show solution
 												</button>
+											) : (
 												<button
 													type="button"
-													onClick={() => setShowSolutionPrompt(false)}
-													className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-semibold text-slate-500 hover:bg-slate-200"
+													onClick={revealNextHint}
+													className="px-2 py-0.5 rounded-md bg-amber-100 border border-amber-200 text-amber-800 text-[9px] font-bold hover:bg-amber-200 transition-colors"
 												>
-													Not now
+													Give me another hint
 												</button>
-											</div>
+											)}
 										</div>
 									)}
 
