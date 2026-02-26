@@ -67,6 +67,10 @@ const App = () => {
 	const [countdown, setCountdown] = useState(0)
 	const [showSuccess, setShowSuccess] = useState(false)
 	const [quizCompleted, setQuizCompleted] = useState(false)
+	const [hintCount, setHintCount] = useState(0)
+	const [revealedHints, setRevealedHints] = useState([])
+	const [showSolutionPrompt, setShowSolutionPrompt] = useState(false)
+	const [showSolution, setShowSolution] = useState(false)
 
 	const QUIZ_DELAY_MS = 3000
 
@@ -274,8 +278,6 @@ const App = () => {
 				overrides.alignSelf = pickRandom(alignOptions)
 			}
 
-			if (quizIncludeOrder && Math.random() > 0.5) overrides.order = Math.floor(Math.random() * itemCount)
-
 			if (quizIncludeShrinkGrow && Math.random() > 0.5) {
 				const nextGrow = Math.floor(Math.random() * 4)
 				const nextShrink = Math.floor(Math.random() * 4)
@@ -287,9 +289,35 @@ const App = () => {
 			if (Object.keys(overrides).length > 0) itemOverrides[item.id] = overrides
 		})
 
+		if (quizIncludeOrder && Math.random() > 0.3) {
+			const defaultVisual = getVisualOrder(activeItems, it => DEFAULT_ITEMS.find(d => d.id === it.id)?.order ?? 0)
+			const shuffled = [...defaultVisual].sort(() => Math.random() - 0.5)
+			const isIdentical = shuffled.every((id, i) => id === defaultVisual[i])
+
+			if (!isIdentical) {
+				shuffled.forEach((id, visualIdx) => {
+					if (!itemOverrides[id]) itemOverrides[id] = {}
+					itemOverrides[id].order = visualIdx
+				})
+			}
+		}
+
 		if (Object.keys(itemOverrides).length === 0) {
-			const randomItem = pickRandom(activeItems)
-			itemOverrides[randomItem.id] = { order: Math.floor(Math.random() * itemCount) + 1 }
+			const defaultVisual = getVisualOrder(activeItems, it => DEFAULT_ITEMS.find(d => d.id === it.id)?.order ?? 0)
+			const shuffled = [...defaultVisual].sort(() => Math.random() - 0.5)
+			const isIdentical = shuffled.every((id, i) => id === defaultVisual[i])
+
+			if (!isIdentical) {
+				shuffled.forEach((id, visualIdx) => {
+					if (!itemOverrides[id]) itemOverrides[id] = {}
+					itemOverrides[id].order = visualIdx
+				})
+			} else {
+				const first = activeItems[0]
+				const last = activeItems[activeItems.length - 1]
+				itemOverrides[first.id] = { order: activeItems.length }
+				itemOverrides[last.id] = { order: -1 }
+			}
 		}
 
 		return { ...containerProps, itemOverrides }
@@ -306,6 +334,11 @@ const App = () => {
 		setShowSuccess(false)
 		setIsPaused(false)
 		setQuizCompleted(false)
+		setShowHint(false)
+		setHintCount(0)
+		setRevealedHints([])
+		setShowSolutionPrompt(false)
+		setShowSolution(false)
 	}
 
 	const startQuizSession = () => {
@@ -317,12 +350,156 @@ const App = () => {
 		setCountdown(0)
 		setIsPaused(false)
 		setQuizCompleted(false)
+		setHintCount(0)
+		setRevealedHints([])
+		setShowSolutionPrompt(false)
+		setShowSolution(false)
 		startNewQuiz()
 	}
 
 	const skipToNext = () => startNewQuiz()
 	const goBack = () => { if (historyIndex > 0) { setHistoryIndex(historyIndex - 1); setShowSuccess(false); setCountdown(0); } }
 	const goForward = () => { if (historyIndex < quizHistory.length - 1) { setHistoryIndex(historyIndex + 1); setShowSuccess(false); setCountdown(0); } }
+
+	const normalizeAlign = val => val === 'stretch' ? 'start' : val
+
+	const resolveAlignSelf = (alignSelf, containerAlignItems) =>
+		normalizeAlign(alignSelf === 'auto' ? containerAlignItems : alignSelf)
+
+	const getVisualOrder = (activeItems, orderFn) =>
+		activeItems
+			.map((item, idx) => ({ id: item.id, order: orderFn(item), domIndex: idx }))
+			.sort((a, b) => a.order - b.order || a.domIndex - b.domIndex)
+			.map(x => x.id)
+
+	const getActiveHintKeys = () => {
+		if (!quizTarget) return new Set()
+
+		const keys = new Set()
+
+		if (containerStyles.flexDirection !== quizTarget.flexDirection) keys.add('direction')
+		if (containerStyles.justifyContent !== quizTarget.justifyContent) keys.add('justify')
+		if (normalizeAlign(containerStyles.alignItems) !== normalizeAlign(quizTarget.alignItems)) keys.add('align')
+
+		const directionMatches = containerStyles.flexDirection === quizTarget.flexDirection
+		const justifyMatches = containerStyles.justifyContent === quizTarget.justifyContent
+
+		if (containerStyles.gap !== quizTarget.gap && directionMatches && justifyMatches) keys.add('gap')
+
+		const activeItems = items.slice(0, itemCount)
+
+		const userVisualOrder = getVisualOrder(activeItems, it => it.order)
+		const targetVisualOrder = getVisualOrder(activeItems, it => {
+			const defaultItem = DEFAULT_ITEMS.find(d => d.id === it.id) || it
+			return (quizTarget.itemOverrides?.[it.id]?.order) ?? defaultItem.order
+		})
+		const orderMatters = userVisualOrder.some((id, i) => id !== targetVisualOrder[i])
+
+		activeItems.forEach(item => {
+			const defaultItem = DEFAULT_ITEMS.find(it => it.id === item.id) || item
+			const ov = quizTarget.itemOverrides?.[item.id] || {}
+
+			if (ov.alignSelf !== undefined) {
+				const userResolved = resolveAlignSelf(item.alignSelf, containerStyles.alignItems)
+				const targetResolved = resolveAlignSelf(ov.alignSelf, quizTarget.alignItems)
+				if (userResolved !== targetResolved) keys.add(`alignSelf-${item.id}`)
+			} else if (item.alignSelf !== defaultItem.alignSelf) {
+				keys.add(`alignSelf-${item.id}`)
+			}
+
+			if (orderMatters) {
+				if (ov.order !== undefined) {
+					if (item.order !== ov.order) keys.add(`order-${item.id}`)
+				} else if (item.order !== defaultItem.order) {
+					keys.add(`order-${item.id}`)
+				}
+			} else if (item.order !== defaultItem.order) {
+				keys.add(`order-${item.id}`)
+			}
+
+			if (ov.flexGrow !== undefined) {
+				if (item.flexGrow !== ov.flexGrow) keys.add(`grow-${item.id}`)
+			} else if (item.flexGrow !== defaultItem.flexGrow) {
+				keys.add(`grow-${item.id}`)
+			}
+
+			if (ov.flexShrink !== undefined) {
+				if (item.flexShrink !== ov.flexShrink) keys.add(`shrink-${item.id}`)
+			} else if (item.flexShrink !== defaultItem.flexShrink) {
+				keys.add(`shrink-${item.id}`)
+			}
+		})
+
+		return keys
+	}
+
+	const buildHintText = key => {
+		if (key === 'direction') {
+			const isColumn = quizTarget.flexDirection.includes('column')
+			const isReversed = quizTarget.flexDirection.includes('reverse')
+			if (isReversed) return `Consider changing the flex direction — try a reversed ${isColumn ? 'column' : 'row'} layout.`
+			return `Consider changing the flex direction — try a ${isColumn ? 'column' : 'row'}-based layout.`
+		}
+
+		if (key === 'justify') return 'Consider adjusting how items are justified along the main axis.'
+		if (key === 'align') return 'Consider changing how items are aligned along the cross axis.'
+
+		if (key === 'gap') {
+			const targetGap = parseInt(quizTarget.gap)
+			const currentGap = parseInt(containerStyles.gap)
+			return `Consider ${targetGap > currentGap ? 'increasing' : 'decreasing'} the gap between items.`
+		}
+
+		const match = key.match(/^(\w+)-(\d+)$/)
+		if (!match) return key
+		const [, prop, id] = match
+
+		if (prop === 'alignSelf') {
+			const ov = quizTarget.itemOverrides?.[id]
+			if (ov?.alignSelf !== undefined) return `Consider changing the alignment of item #${id}.`
+			return `Item #${id} doesn't need a custom alignment — consider resetting it.`
+		}
+
+		if (prop === 'order') {
+			const ov = quizTarget.itemOverrides?.[id]
+			if (ov?.order !== undefined) return `Consider changing the order of item #${id}.`
+			return `Item #${id} doesn't need a custom order — consider resetting it.`
+		}
+
+		if (prop === 'grow') {
+			const ov = quizTarget.itemOverrides?.[id]
+			if (ov?.flexGrow !== undefined) return `Consider adjusting the flex-grow value of item #${id}.`
+			return `Item #${id} doesn't need a custom flex-grow — consider resetting it.`
+		}
+
+		if (prop === 'shrink') {
+			const ov = quizTarget.itemOverrides?.[id]
+			if (ov?.flexShrink !== undefined) return `Consider adjusting the flex-shrink value of item #${id}.`
+			return `Item #${id} doesn't need a custom flex-shrink — consider resetting it.`
+		}
+
+		return key
+	}
+
+	const handleHintClick = () => {
+		if (!isQuizMode || !quizTarget || quizCompleted) return
+
+		const activeKeys = getActiveHintKeys()
+		const revealedKeys = revealedHints.map(h => h.key)
+		const unrevealedKeys = [...activeKeys].filter(k => !revealedKeys.includes(k))
+
+		if (unrevealedKeys.length === 0 || hintCount >= 3) {
+			setShowSolutionPrompt(true)
+			setShowHint(true)
+			return
+		}
+
+		const nextKey = unrevealedKeys[0]
+		setRevealedHints(prev => [...prev, { key: nextKey, text: buildHintText(nextKey) }])
+		setHintCount(prev => prev + 1)
+		setShowSolutionPrompt(false)
+		setShowHint(true)
+	}
 
 	useEffect(() => {
 		if (!isQuizMode) setShowQuizOptions(false)
@@ -566,9 +743,15 @@ const App = () => {
 												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600"><ChevronRight size={14} /></button>
 											</div>
 											<div className="w-px h-3 bg-slate-300 mx-0.5" />
-											<button onClick={() => setShowHint(!showHint)} className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${showHint ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+											<button onClick={handleHintClick} className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${showHint ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
 												{showHint ? <Eye size={12} /> : <EyeOff size={12} />} Hint
 											</button>
+											{showSolution && (
+												<>
+													<div className="w-px h-3 bg-slate-300 mx-0.5" />
+													<button onClick={skipToNext} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[9px] font-bold shadow-md">Next</button>
+												</>
+											)}
 											<div className="w-px h-3 bg-slate-300 mx-0.5" />
 											<button
 												onClick={() => setOutlineOnly(!outlineOnly)}
@@ -680,34 +863,124 @@ const App = () => {
 							})}
 						</div>
 
-						{/* QUIZ HUD */}
-						{isQuizMode && showHint && quizTarget && (
-							<div className="absolute top-6 left-1/2 -translate-x-1/2 pointer-events-none animate-in fade-in slide-in-from-top-4 z-40 flex flex-col items-center gap-1.5">
-								<div className="bg-black/80 text-white px-5 py-2 rounded-full text-[10px] font-mono backdrop-blur-md border border-white/20 shadow-2xl flex items-center gap-3">
-									<span className="font-bold uppercase tracking-widest text-[9px] text-pink-400">CHALLENGE #{historyIndex + 1}</span>
-									<div className="w-px h-3 bg-white/20" />
-									<div className="flex gap-3 text-[9px]">
-										<span>DIR: <b className="text-pink-400">{quizTarget.flexDirection}</b></span>
-										<span>JUSTIFY: <b className="text-emerald-400">{quizTarget.justifyContent}</b></span>
-										<span>ALIGN: <b className="text-sky-400">{quizTarget.alignItems}</b></span>
-										<span>GAP: <b className="text-amber-400">{quizTarget.gap}</b></span>
-									</div>
-								</div>
-								{quizTarget.itemOverrides && Object.keys(quizTarget.itemOverrides).length > 0 && (
-									<div className="bg-black/80 text-white px-5 py-1.5 rounded-full text-[10px] font-mono backdrop-blur-md border border-white/20 shadow-2xl flex items-center gap-3">
-										{Object.entries(quizTarget.itemOverrides).map(([id, ov]) => (
-											<span key={id} className="flex gap-2 text-[9px]">
-												<b className="text-violet-400">#{id}</b>
-												{ov.alignSelf && <span>ALIGN-SELF: <b className="text-sky-400">{ov.alignSelf}</b></span>}
-												{ov.order !== undefined && <span>ORDER: <b className="text-amber-400">{ov.order}</b></span>}
-												{ov.flexGrow !== undefined && <span>GROW: <b className="text-emerald-400">{ov.flexGrow}</b></span>}
-												{ov.flexShrink !== undefined && <span>SHRINK: <b className="text-rose-400">{ov.flexShrink}</b></span>}
+						{/* QUIZ HINTS POPOVER */}
+						{isQuizMode && showHint && quizTarget && (() => {
+							const activeKeys = getActiveHintKeys()
+							const revealedKeys = revealedHints.map(h => h.key)
+							const remaining = [...activeKeys].filter(k => !revealedKeys.includes(k)).length
+							const hintEntries = revealedHints.map(h => ({
+								...h,
+								resolved: !activeKeys.has(h.key),
+							}))
+
+							return (
+							<div className="absolute bottom-4 right-4 z-40 max-w-sm">
+								<div className="relative bg-white/95 border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-xs text-slate-700">
+									<div className="flex items-center justify-between gap-2 mb-1.5">
+										<div className="flex items-center gap-1.5">
+											<Eye className="text-indigo-500" size={12} />
+											<span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+												{hintEntries.length === 0 ? 'No hints needed' : `Hint ${hintEntries.length} of ${Math.min(hintEntries.length + remaining, 3)}`}
 											</span>
-										))}
+										</div>
+										<button
+											type="button"
+											onClick={() => setShowHint(false)}
+											className="text-slate-400 hover:text-slate-600 text-[10px] font-bold px-1 rounded-md hover:bg-slate-100"
+											aria-label="Close hint"
+										>
+											✕
+										</button>
 									</div>
-								)}
+
+									{hintEntries.length > 0 ? (
+										<ul className="space-y-1.5">
+											{hintEntries.map((entry, i) => (
+												<li key={i} className={`leading-snug flex items-start gap-1.5 ${entry.resolved ? 'text-emerald-600' : ''}`}>
+													{entry.resolved
+														? <CheckCircle size={14} className="shrink-0 mt-0.5 text-emerald-500" />
+														: <span className="shrink-0 w-[14px] mt-0.5 text-center text-slate-300 font-bold">•</span>}
+													<span className={entry.resolved ? 'line-through opacity-70' : ''}>{entry.text}</span>
+												</li>
+											))}
+										</ul>
+									) : (
+										<p className="leading-snug text-emerald-600">Everything looks correct so far!</p>
+									)}
+
+									{showSolutionPrompt && !showSolution && (
+										<div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+											<span className="text-[10px] text-slate-500">
+												You&apos;ve used all hints. Show the solution?
+											</span>
+											<div className="flex items-center gap-1">
+												<button
+													type="button"
+													onClick={() => setShowSolution(true)}
+													className="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-semibold hover:bg-indigo-700"
+												>
+													Show
+												</button>
+												<button
+													type="button"
+													onClick={() => setShowSolutionPrompt(false)}
+													className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-semibold text-slate-500 hover:bg-slate-200"
+												>
+													Not now
+												</button>
+											</div>
+										</div>
+									)}
+
+									{showSolution && (
+										<div className="mt-2 pt-2 border-t border-slate-200 space-y-1 text-[10px] font-mono text-slate-600">
+											<div>
+												flex-direction: <b className="text-pink-500">{String(quizTarget.flexDirection).toLowerCase()}</b>;
+											</div>
+											<div>
+												justify-content: <b className="text-emerald-500">{String(quizTarget.justifyContent).toLowerCase()}</b>;
+											</div>
+											<div>
+												align-items: <b className="text-sky-500">{String(quizTarget.alignItems).toLowerCase()}</b>;
+											</div>
+											<div>
+												gap: <b className="text-amber-500">{String(quizTarget.gap).toLowerCase()}</b>;
+											</div>
+											{quizTarget.itemOverrides && Object.keys(quizTarget.itemOverrides).length > 0 && (
+												<div className="pt-1 space-y-0.5">
+													{Object.entries(quizTarget.itemOverrides).map(([id, ov]) => (
+														<div key={id} className="flex flex-wrap gap-2">
+															<span className="font-bold text-violet-500">#{id}</span>
+															{ov.alignSelf && (
+																<span>
+																	align-self: <b className="text-sky-500">{String(ov.alignSelf).toLowerCase()}</b>;
+																</span>
+															)}
+															{ov.order !== undefined && (
+																<span>
+																	order: <b className="text-amber-500">{String(ov.order).toLowerCase()}</b>;
+																</span>
+															)}
+															{ov.flexGrow !== undefined && (
+																<span>
+																	flex-grow: <b className="text-emerald-500">{String(ov.flexGrow).toLowerCase()}</b>;
+																</span>
+															)}
+															{ov.flexShrink !== undefined && (
+																<span>
+																	flex-shrink: <b className="text-rose-500">{String(ov.flexShrink).toLowerCase()}</b>;
+																</span>
+															)}
+														</div>
+													))}
+												</div>
+											)}
+										</div>
+									)}
+								</div>
 							</div>
-						)}
+							)
+						})()}
 					</div>
 				</div>
 
