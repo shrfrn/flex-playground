@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
 	Settings, Play, Code, Plus, Minus,
-	Copy, Check, Undo2, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
+	Copy, Check, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
 	ChevronLeft, ChevronRight, Pause, PlayCircle, SkipForward,
 	SlidersHorizontal, FileCode, Box, GraduationCap, Gamepad2,
 	ArrowRight, ArrowDown, Axis3d, GripVertical, Info,
+	ArrowLeftToLine, RotateCcw,
 } from 'lucide-react'
 
 const DEFAULT_CONTAINER_STYLES = {
@@ -75,6 +76,21 @@ const App = () => {
 
 	const QUIZ_DELAY_MS = 3000
 
+	const CONFETTI_COLORS = ['#10b981', '#ec4899', '#0ea5e9', '#f59e0b', '#8b5cf6', '#f43f5e', '#06b6d4', '#eab308']
+	const confettiPieces = useMemo(() => {
+		if (!quizCompleted) return []
+		return Array.from({ length: 100 }, (_, i) => ({
+			left: Math.random() * 100,
+			top: -15 - Math.random() * 15,
+			delay: Math.random() * 1.2,
+			duration: 3 + Math.random() * 2.5,
+			color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+			size: 6 + Math.floor(Math.random() * 6),
+			drift: (Math.random() - 0.5) * 120,
+			rotate: 360 + Math.random() * 360,
+		}))
+	}, [quizCompleted])
+
 	// Container Styles
 	const [containerStyles, setContainerStyles] = useState({ ...DEFAULT_CONTAINER_STYLES })
 
@@ -86,6 +102,24 @@ const App = () => {
 	const [containerCodeDirty, setContainerCodeDirty] = useState(false)
 	const [itemCodeDirty, setItemCodeDirty] = useState(() => Array(5).fill(false))
 	const [codeResetKey, setCodeResetKey] = useState(0)
+
+	const isContainerTainted = useMemo(() => {
+		const d = DEFAULT_CONTAINER_STYLES
+		const c = containerStyles
+		const propsMatch = d.display === c.display && d.flexDirection === c.flexDirection && d.justifyContent === c.justifyContent && d.alignItems === c.alignItems && d.gap === c.gap
+		return !propsMatch || containerCodeDirty
+	}, [containerStyles, containerCodeDirty])
+
+	const currentItemId = selectedId > 0 ? selectedId : 1
+	const isCurrentItemTainted = useMemo(() => {
+		const idx = currentItemId - 1
+		if (idx < 0 || idx >= items.length) return false
+		const def = DEFAULT_ITEMS[idx]
+		const cur = items[idx]
+		if (!def || !cur) return false
+		const propsMatch = def.alignSelf === cur.alignSelf && def.flexGrow === cur.flexGrow && def.flexShrink === cur.flexShrink && def.order === cur.order && def.width === cur.width && def.height === cur.height
+		return !propsMatch || itemCodeDirty[idx]
+	}, [items, currentItemId, itemCodeDirty])
 	const [copyFeedback, setCopyFeedback] = useState(false)
 	const realContainerRef = useRef(null)
 	const ghostContainerRef = useRef(null)
@@ -327,8 +361,8 @@ const App = () => {
 		return { ...containerProps, itemOverrides }
 	}
 
-	const startNewQuiz = () => {
-		if (quizHistory.length >= quizQuestionCount) return
+	const startNewQuiz = (forceStart = false) => {
+		if (!forceStart && quizHistory.length >= quizQuestionCount) return
 
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
 		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
@@ -362,7 +396,7 @@ const App = () => {
 		setShowSolutionConfirm(false)
 		setShowSolution(false)
 		setHintPopoverPosition(null)
-		startNewQuiz()
+		startNewQuiz(true)
 	}
 
 	const skipToNext = () => startNewQuiz()
@@ -647,23 +681,23 @@ const App = () => {
 					<p className="text-slate-500 text-sm">Visualizing CSS Flexbox with real-time feedback.</p>
 				</div>
 
-				<div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+				<div className="flex gap-2 bg-white p-1 rounded-lg shadow-sm border border-slate-200 overflow-hidden">
 					<button
 						onClick={() => { setIsQuizMode(false); setQuizHistory([]); setHistoryIndex(-1); setScore(0) }}
-						className={`flex items-center gap-2 px-4 py-2.5 md:px-6 rounded-lg font-bold text-sm transition-all ${!isQuizMode ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						className={`flex items-center gap-1.5 px-3 py-1.5 md:px-4 rounded-md font-bold text-xs transition-all ${!isQuizMode ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
 						title="Playground"
 						aria-label="Playground"
 					>
-						<Gamepad2 size={16} />
+						<Gamepad2 size={14} />
 						<span className="hidden md:inline">Playground</span>
 					</button>
 					<button
 						onClick={() => { setIsQuizMode(true); setShowQuizOptions(true) }}
-						className={`flex items-center gap-2 px-4 py-2.5 md:px-6 rounded-lg font-bold text-sm transition-all ${isQuizMode ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
+						className={`flex items-center gap-1.5 px-3 py-1.5 md:px-4 rounded-md font-bold text-xs transition-all ${isQuizMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
 						title="Quiz Mode"
 						aria-label="Quiz Mode"
 					>
-						<GraduationCap size={18} />
+						<GraduationCap size={14} />
 						<span className="hidden md:inline">Quiz Mode</span>
 					</button>
 				</div>
@@ -671,45 +705,41 @@ const App = () => {
 
 			<main className="max-w-7xl mx-auto space-y-4">
 				<div className="relative aspect-[21/8] flex flex-col w-full bg-slate-200 rounded-[2rem] overflow-hidden shadow-inner border-[10px] border-white">
-					<div className="bg-white/60 backdrop-blur-md border-b border-white px-6 py-2 flex items-center justify-between min-h-[56px] z-30">
+					<div className="bg-white/60 backdrop-blur-md border-b border-white px-6 py-1.5 flex items-center justify-between min-h-[36px] z-30">
 						<div className="flex items-center gap-2">
-							{/* Box Count Chooser */}
-							<div className="flex items-center bg-white/80 rounded-xl p-1 border border-white/50 shadow-sm h-[38px] box-border">
-								<div className="flex items-center gap-2 px-2">
-									<button onClick={() => setItemCount(Math.max(1, itemCount - 1))} className="p-1 bg-white rounded-lg shadow-sm hover:scale-110 active:scale-95 transition-all text-slate-400 hover:text-slate-600"><Minus size={12}/></button>
-									<span className="text-sm font-bold w-4 text-center">{itemCount}</span>
-									<button onClick={() => setItemCount(Math.min(5, itemCount + 1))} className="p-1 bg-white rounded-lg shadow-sm hover:scale-110 active:scale-95 transition-all text-slate-400 hover:text-slate-600"><Plus size={12}/></button>
-									<span className="text-[9px] font-bold uppercase text-slate-400 ml-1">Boxes</span>
-								</div>
+							{/* Box count */}
+							<div className="flex items-center h-6 bg-white/80 rounded-md pl-1 pr-1.5 border border-white/50 shadow-sm">
+								<button onClick={() => setItemCount(Math.max(1, itemCount - 1))} className="p-1 rounded hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-600" aria-label="Decrease box count"><Minus size={12}/></button>
+								<span className="text-xs font-bold w-4 text-center tabular-nums">{itemCount}</span>
+								<button onClick={() => setItemCount(Math.min(5, itemCount + 1))} className="p-1 rounded hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-600" aria-label="Increase box count"><Plus size={12}/></button>
+								<span className="text-[9px] font-bold uppercase text-slate-400 ml-0.5">Boxes</span>
 							</div>
-							{/* Axis Toggle - separate icon */}
 							<button
 								onClick={() => setShowAxes(!showAxes)}
-								className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-all ${showAxes ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
-								title="Toggle Axes Overlay"
+								className={`flex items-center justify-center h-6 w-6 rounded-md border transition-all outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 ${showAxes ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
+								title="Toggle axes overlay"
 								aria-label={showAxes ? 'Hide axes overlay' : 'Show axes overlay'}
 							>
-								<Axis3d size={18} strokeWidth={2.5} />
+								<Axis3d size={14} strokeWidth={2.5} />
 							</button>
-							{/* Reset container and items to defaults */}
 							<button
 								type="button"
 								onClick={resetAllToDefaults}
-								className="flex items-center justify-center w-9 h-9 rounded-xl border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 transition-all"
+								className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
 								title="Reset container and items to defaults"
 								aria-label="Reset container and all items to default values"
 							>
-								<Undo2 size={18} strokeWidth={2.5} />
+								<ArrowLeftToLine size={14} strokeWidth={2.5} />
 							</button>
 							{isQuizMode && (
 								<button
 									type="button"
-									onClick={() => setShowQuizOptions(true)}
-									className="flex items-center bg-white/80 rounded-xl px-3 border border-white/50 shadow-sm h-[38px] box-border text-[11px] font-semibold text-slate-600 hover:bg-white hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+									onClick={() => quizCompleted ? startQuizSession() : setShowQuizOptions(true)}
+									className="flex items-center gap-1 h-6 px-2 rounded-md border border-white/50 bg-white/80 shadow-sm text-[10px] font-semibold text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
 									title="Restart quiz"
 									aria-label="Restart quiz"
 								>
-									<Undo2 size={14} className="mr-1.5" />
+									<RotateCcw size={12} />
 									<span className="hidden sm:inline">Restart Quiz</span>
 								</button>
 							)}
@@ -719,83 +749,54 @@ const App = () => {
 							<>
 								<div className="flex-grow flex justify-center px-4">
 									{quizCompleted ? (
-										<div className="relative flex items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-300 w-full max-w-md bg-white/80 rounded-xl border border-emerald-100 shadow-lg px-4 py-2.5 overflow-hidden">
-											<div className="pointer-events-none absolute inset-0">
-												<span className="absolute -top-1 left-6 w-1.5 h-3 bg-pink-400 rounded-sm rotate-12" />
-												<span className="absolute top-3 right-4 w-1.5 h-3 bg-sky-400 rounded-sm -rotate-6" />
-												<span className="absolute bottom-1 left-10 w-1 h-2 bg-amber-400 rounded-sm rotate-3" />
-												<span className="absolute top-1/2 left-1/3 w-1.5 h-3 bg-violet-400 rounded-sm -rotate-12" />
-												<span className="absolute bottom-2 right-8 w-1 h-2 bg-emerald-400 rounded-sm rotate-8" />
-												<span className="absolute top-0 right-1/3 w-1 h-2 bg-rose-400 rounded-sm rotate-6" />
-											</div>
-											<div className="relative flex items-center gap-2.5">
-												<PartyPopper className="text-emerald-500" size={18} />
-												<div className="flex flex-col">
-													<span className="text-emerald-700 font-extrabold text-xs uppercase tracking-tight">Quiz complete!</span>
-													<span className="text-[11px] text-slate-600">Nice work matching all layouts.</span>
-												</div>
-											</div>
-											<div className="relative flex flex-col items-end gap-0.5">
-												<span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Score</span>
-												<span className="text-sm font-black text-emerald-600">
-													{score} / {quizQuestionCount}
-												</span>
-											</div>
-										</div>
+										<div className="flex items-center gap-2" aria-hidden />
 									) : showSuccess ? (
-										<div className="flex items-center gap-4 animate-in slide-in-from-top-2 duration-300 w-full max-w-sm">
-											<div className="flex items-center gap-2.5 shrink-0">
-												<PartyPopper className="text-emerald-500" size={16} />
-												<span className="text-emerald-700 font-extrabold text-xs uppercase tracking-tight">Match!</span>
+										<div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-300 w-full max-w-sm h-6">
+											<div className="flex items-center gap-1.5 shrink-0">
+												<PartyPopper className="text-emerald-500" size={14} />
+												<span className="text-emerald-700 font-extrabold text-[10px] uppercase tracking-tight">Match!</span>
 											</div>
 											<div className="flex-grow flex items-center gap-2">
 												<div className="flex-grow h-1 bg-emerald-100/50 rounded-full overflow-hidden">
 													<div className="h-full bg-emerald-500 transition-all duration-75 ease-linear" style={{ width: `${countdown}%` }} />
 												</div>
-												<span className="text-[9px] font-mono font-bold text-emerald-600">{(Math.max(0, (QUIZ_DELAY_MS - (countdown * QUIZ_DELAY_MS / 100)) / 1000)).toFixed(1)}s</span>
 											</div>
-											<div className="flex items-center gap-1">
-												<button onClick={() => setIsPaused(!isPaused)} className="p-1 rounded-lg hover:bg-emerald-100 text-emerald-600 transition-colors">
+											<div className="flex items-center gap-1 h-6">
+												<button onClick={() => setIsPaused(!isPaused)} className="p-1 rounded hover:bg-emerald-100 text-emerald-600 transition-colors" aria-label={isPaused ? 'Resume' : 'Pause'}>
 													{isPaused ? <Play size={12} /> : <Pause size={12} />}
 												</button>
-												<button onClick={skipToNext} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[9px] font-bold shadow-md">Next</button>
+												<button onClick={skipToNext} className="h-6 px-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-bold shadow-sm">Next</button>
 											</div>
-											<div className="w-px h-3 bg-slate-300 mx-0.5" />
 											<button
 												onClick={() => setOutlineOnly(!outlineOnly)}
 												aria-pressed={outlineOnly}
 												aria-label={outlineOnly ? 'Show filled boxes' : 'Show outline only'}
-												className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+												className={`flex items-center gap-1 h-6 px-2 rounded-md font-bold text-[8px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white/80 border-white/50 text-slate-600 hover:bg-white'}`}
 											>
 												<Box size={12} />
 												Outline
 											</button>
 										</div>
 									) : (
-										<div className="flex items-center gap-2 bg-white/40 p-0.5 rounded-xl border border-white/30">
-											<div className="flex items-center gap-0.5">
-												<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600" title="Back"><ChevronLeft size={14} /></button>
-												<span className="px-3 py-1.5 text-[11px] font-semibold text-slate-600 min-w-[4rem] text-center" aria-live="polite">
+										<div className="flex items-center gap-2 h-6">
+											<div className="flex items-center h-6 bg-white/80 rounded-md border border-white/50 shadow-sm overflow-hidden">
+												<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white/80 disabled:opacity-30 transition-all text-slate-600" title="Previous question" aria-label="Previous question"><ChevronLeft size={12} /></button>
+												<span className="px-2 text-[10px] font-semibold text-slate-600 min-w-[3rem] text-center tabular-nums" aria-live="polite">
 													{historyIndex < 0 ? '—' : historyIndex + 1} / {quizQuestionCount}
 												</span>
-												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600"><ChevronRight size={14} /></button>
+												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white/80 disabled:opacity-30 transition-all text-slate-600" aria-label="Next question"><ChevronRight size={12} /></button>
 											</div>
-											<div className="w-px h-3 bg-slate-300 mx-0.5" />
-											<button onClick={handleHintClick} className={`flex items-center gap-1 px-2 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${showHint ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+											<button onClick={handleHintClick} className={`flex items-center gap-1 h-6 px-2 rounded-md font-bold text-[8px] uppercase transition-all border ${showHint ? 'bg-amber-100 border-amber-200 text-amber-700' : 'bg-white/80 border-white/50 text-slate-600 hover:bg-white'}`}>
 												{showHint ? <Eye size={12} /> : <EyeOff size={12} />} Hint
 											</button>
 											{showSolution && (
-												<>
-													<div className="w-px h-3 bg-slate-300 mx-0.5" />
-													<button onClick={skipToNext} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-lg text-[9px] font-bold shadow-md">Next</button>
-												</>
+												<button onClick={skipToNext} className="h-6 px-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[8px] font-bold shadow-sm">Next</button>
 											)}
-											<div className="w-px h-3 bg-slate-300 mx-0.5" />
 											<button
 												onClick={() => setOutlineOnly(!outlineOnly)}
 												aria-pressed={outlineOnly}
 												aria-label={outlineOnly ? 'Show filled boxes' : 'Show outline only'}
-												className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[9px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+												className={`flex items-center gap-1 h-6 px-2 rounded-md font-bold text-[8px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white/80 border-white/50 text-slate-600 hover:bg-white'}`}
 											>
 												<Box size={12} />
 												Outline
@@ -804,10 +805,10 @@ const App = () => {
 									)}
 								</div>
 
-								<div className="flex items-center min-w-[120px] justify-end">
-									<div className="flex items-center gap-1.5 px-3 h-[38px] box-border bg-amber-50 text-amber-700 rounded-xl border border-amber-100 shadow-sm">
+								<div className="flex items-center min-w-[80px] justify-end">
+									<div className="flex items-center gap-1 h-6 px-2 bg-amber-50 text-amber-700 rounded-md border border-amber-100 shadow-sm font-bold text-[9px]">
 										<Award size={12} />
-										<span className="text-[10px] font-black tracking-tight">{score} Pts</span>
+										<span className="tracking-tight">{score} Pts</span>
 									</div>
 								</div>
 							</>
@@ -816,6 +817,33 @@ const App = () => {
 					</div>
 
 					<div className="flex-grow relative bg-slate-200">
+						{/* CONFETTI + SUCCESS MESSAGE OVERLAY — when quiz completes */}
+						{isQuizMode && quizCompleted && (
+							<div className="absolute inset-0 pointer-events-none z-30 overflow-hidden flex items-center justify-center" aria-hidden>
+								{confettiPieces.length > 0 && confettiPieces.map((p, i) => (
+									<div
+										key={i}
+										className="confetti-piece absolute"
+										style={{
+											left: `${p.left}%`,
+											top: `${p.top}%`,
+											width: p.size,
+											height: p.size,
+											backgroundColor: p.color,
+											animationDelay: `${p.delay}s`,
+											animationDuration: `${p.duration}s`,
+											['--confetti-drift']: `${p.drift}px`,
+											['--confetti-rotate']: `${p.rotate}deg`,
+										}}
+									/>
+								))}
+								<div className="quiz-complete-message relative z-10 flex flex-col items-center gap-0.5 text-center" aria-live="polite">
+									<span className="text-emerald-700 font-extrabold tracking-tight">Quiz complete</span>
+									<span className="text-emerald-600 font-black">{score} / {quizQuestionCount}</span>
+								</div>
+							</div>
+						)}
+
 						{/* AXES OVERLAY */}
 						{showAxes && (
 							<div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
@@ -1059,15 +1087,45 @@ const App = () => {
 
 				<div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col">
 					<div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1">
-						<button onClick={() => setActiveTab('properties')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-6 rounded-xl font-bold text-sm transition-all ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}>
-							<SlidersHorizontal size={14} />Container
-						</button>
-						<div className={`flex-1 relative flex items-center justify-between px-3 py-1.5 rounded-xl transition-all cursor-pointer ${activeTab === 'items' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`} onClick={() => { if (selectedId === 0) setSelectedId(1); setActiveTab('items') }}>
-							<button onClick={handlePrevItem} disabled={selectedId <= 1} className="p-1 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-all text-slate-400"><ChevronLeft size={14}/></button>
-							<div className="flex items-center gap-2 font-bold text-sm select-none"><Box size={14} /><span>Item {selectedId > 0 ? selectedId : 1}</span></div>
-							<button onClick={handleNextItem} disabled={selectedId >= itemCount} className="p-1 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-all text-slate-400"><ChevronRight size={14}/></button>
+						<div className={`flex-1 flex items-center justify-center min-w-0 rounded-tl-[1.5rem] rounded-tr-xl rounded-br-xl rounded-bl-xl cursor-pointer ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setActiveTab('properties')} role="tab" aria-selected={activeTab === 'properties'}>
+							<span className="relative inline-flex items-center">
+								<button type="button" onClick={() => setActiveTab('properties')} className="flex items-center justify-center gap-1.5 py-1.5 px-6 font-bold text-sm transition-all text-inherit bg-transparent border-0 cursor-pointer">
+									<SlidersHorizontal size={14} />Container
+								</button>
+								{isContainerTainted && (
+									<button
+										type="button"
+										onClick={e => { e.stopPropagation(); resetContainerCode() }}
+										className="absolute left-full ml-1 top-1/2 -translate-y-1/2 flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-slate-400 transition-colors"
+										title="Reset container to defaults"
+										aria-label="Reset container to defaults"
+									>
+										<ArrowLeftToLine size={12} strokeWidth={2.5} />
+									</button>
+								)}
+							</span>
 						</div>
-						<button onClick={() => setActiveTab('code')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-6 rounded-xl font-bold text-sm transition-all ${activeTab === 'code' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}>
+						<div className={`flex-1 relative flex items-center justify-between min-w-0 rounded-xl transition-all cursor-pointer ${activeTab === 'items' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`} onClick={() => { if (selectedId === 0) setSelectedId(1); setActiveTab('items') }} role="tab" aria-selected={activeTab === 'items'}>
+							<button type="button" onClick={handlePrevItem} disabled={selectedId <= 1} className="p-1 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-all text-slate-400 shrink-0" aria-label="Previous item"><ChevronLeft size={14}/></button>
+							<div className="flex-1 flex justify-center items-center min-w-0 py-1.5">
+								<span className="relative inline-flex items-center gap-1 font-bold text-sm select-none">
+									<Box size={14} /><span>Item {selectedId > 0 ? selectedId : 1}</span>
+									{isCurrentItemTainted && (
+										<button
+											type="button"
+											onClick={e => { e.stopPropagation(); resetItemCode(selectedId > 0 ? selectedId : 1) }}
+											className="absolute left-full ml-7 top-1/2 -translate-y-1/2 flex items-center justify-center h-5 w-5 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-slate-400 transition-colors"
+											title="Reset this item to defaults"
+											aria-label="Reset this item to defaults"
+										>
+											<ArrowLeftToLine size={12} strokeWidth={2.5} />
+										</button>
+									)}
+								</span>
+							</div>
+							<button type="button" onClick={handleNextItem} disabled={selectedId >= itemCount} className="p-1 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-all text-slate-400 shrink-0" aria-label="Next item"><ChevronRight size={14}/></button>
+						</div>
+						<button onClick={() => setActiveTab('code')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-6 rounded-tr-[1.5rem] rounded-tl-xl rounded-bl-xl rounded-br-xl font-bold text-sm transition-all ${activeTab === 'code' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}>
 							<FileCode size={14} />Code Editor
 						</button>
 					</div>
@@ -1076,7 +1134,7 @@ const App = () => {
 						{activeTab === 'properties' && (
 							<div className="animate-in fade-in duration-300">
 								<div className="flex flex-col gap-4">
-									<div className="flex flex-wrap items-end gap-8">
+									<div className="flex flex-wrap items-end gap-8 mt-2">
 										<ControlGroup label="Display Mode">
 											<RadioGroup name="display" options={['flex', 'block']} value={containerStyles.display} onChange={(val) => setContainerStyles({ ...containerStyles, display: val })} />
 										</ControlGroup>
@@ -1178,7 +1236,7 @@ const App = () => {
 														title="Reset to default"
 														aria-label="Reset container code to default"
 													>
-														<Undo2 size={12} strokeWidth={2.5} />
+														<ArrowLeftToLine size={12} strokeWidth={2.5} />
 													</span>
 												)}
 											</div>
@@ -1197,7 +1255,7 @@ const App = () => {
 															title="Reset to default"
 															aria-label={`Reset item ${item.id} code to default`}
 														>
-															<Undo2 size={12} strokeWidth={2.5} />
+															<ArrowLeftToLine size={12} strokeWidth={2.5} />
 														</span>
 													)}
 												</div>
@@ -1336,7 +1394,7 @@ const App = () => {
 										max="20"
 										step="1"
 										value={quizQuestionCount}
-										onChange={e => { setQuizQuestionCount(parseInt(e.target.value, 10) || 4); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										onChange={e => setQuizQuestionCount(parseInt(e.target.value, 10) || 4)}
 										className="flex-1 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-500"
 										aria-label="Number of questions in quiz"
 									/>
@@ -1385,6 +1443,27 @@ const App = () => {
           transition-property: flex-direction, justify-content, align-items, gap, opacity;
           transition-duration: 300ms;
           transition-timing-function: ease;
+        }
+        @keyframes confetti-fall {
+          to {
+            transform: translateY(120vh) translateX(var(--confetti-drift, 0)) rotate(var(--confetti-rotate, 0deg));
+            opacity: 0.6;
+          }
+        }
+        .confetti-piece {
+          border-radius: 1px;
+          animation: confetti-fall linear forwards;
+          will-change: transform;
+        }
+        @keyframes quiz-complete-dissolve {
+          0% { opacity: 1; transform: scale(1); filter: blur(0); }
+          25% { opacity: 1; transform: scale(1); filter: blur(0); }
+          100% { opacity: 0; transform: scale(1.02); filter: blur(4px); }
+        }
+        .quiz-complete-message {
+          font-size: clamp(2rem, 6vw, 4rem);
+          line-height: 1.1;
+          animation: quiz-complete-dissolve 8s ease-out forwards;
         }
       `}</style>
 		</div>
