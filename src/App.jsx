@@ -52,8 +52,13 @@ const App = () => {
 	const [score, setScore] = useState(0)
 	const [itemOpacity, setItemOpacity] = useState(1)
 	const [outlineOnly, setOutlineOnly] = useState(false) // Toggle: transparent bg + thin outline, no text
-	const [quizDifficulty, setQuizDifficulty] = useState('medium') // 'easy' | 'medium' | 'hard'
+	const [quizDifficulty, setQuizDifficulty] = useState('medium') // 'easy' | 'medium' | 'hard' | 'custom'
 	const [showAxes, setShowAxes] = useState(true) // Toggle for axis visibility
+	const [showQuizOptions, setShowQuizOptions] = useState(false)
+	const [quizIncludeItemProps, setQuizIncludeItemProps] = useState(true)
+	const [quizIncludeOrder, setQuizIncludeOrder] = useState(true)
+	const [quizIncludeShrinkGrow, setQuizIncludeShrinkGrow] = useState(false)
+	const [quizQuestionCount, setQuizQuestionCount] = useState(10)
 
 	// Quiz History Management
 	const [quizHistory, setQuizHistory] = useState([])
@@ -61,6 +66,7 @@ const App = () => {
 	const [isPaused, setIsPaused] = useState(false)
 	const [countdown, setCountdown] = useState(0)
 	const [showSuccess, setShowSuccess] = useState(false)
+	const [quizCompleted, setQuizCompleted] = useState(false)
 
 	const QUIZ_DELAY_MS = 3000
 
@@ -86,6 +92,32 @@ const App = () => {
 		justifyContent: ['start', 'end', 'center', 'space-between', 'space-around', 'space-evenly'],
 		alignItems: ['stretch', 'start', 'end', 'center', 'baseline'],
 		alignSelf: ['auto', 'start', 'end', 'center', 'baseline', 'stretch'],
+	}
+
+	const applyDifficultyPreset = preset => {
+		setQuizDifficulty(preset)
+
+		if (preset === 'custom') return
+
+		if (preset === 'easy') {
+			setQuizIncludeItemProps(false)
+			setQuizIncludeOrder(false)
+			setQuizIncludeShrinkGrow(false)
+			return
+		}
+
+		if (preset === 'medium') {
+			setQuizIncludeItemProps(true)
+			setQuizIncludeOrder(true)
+			setQuizIncludeShrinkGrow(false)
+			return
+		}
+
+		if (preset === 'hard') {
+			setQuizIncludeItemProps(true)
+			setQuizIncludeOrder(true)
+			setQuizIncludeShrinkGrow(true)
+		}
 	}
 
 	const generateContainerCss = () => {
@@ -151,6 +183,14 @@ const App = () => {
 			next[itemIndex - 1] = false
 			return next
 		})
+		setCodeResetKey(k => k + 1)
+	}
+
+	const resetAllToDefaults = () => {
+		resetContainerCode()
+		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
+		setItemCodes(DEFAULT_ITEMS.map((_, idx) => generateItemCssFromDefaults(idx + 1)))
+		setItemCodeDirty(() => Array(5).fill(false))
 		setCodeResetKey(k => k + 1)
 	}
 
@@ -220,7 +260,8 @@ const App = () => {
 			gap: `${Math.floor(Math.random() * 5) * 5}px`,
 		}
 
-		if (quizDifficulty === 'easy') return containerProps
+		const hasItemLevelConfig = quizIncludeItemProps || quizIncludeOrder || quizIncludeShrinkGrow
+		if (!hasItemLevelConfig) return containerProps
 
 		const itemOverrides = {}
 		const activeItems = items.slice(0, itemCount)
@@ -228,8 +269,20 @@ const App = () => {
 		activeItems.forEach(item => {
 			const overrides = {}
 
-			if (Math.random() > 0.5) overrides.alignSelf = pickRandom(flexValues.alignSelf.filter(v => v !== 'auto'))
-			if (Math.random() > 0.5) overrides.order = Math.floor(Math.random() * itemCount)
+			if (quizIncludeItemProps && Math.random() > 0.5) {
+				const alignOptions = flexValues.alignSelf.filter(v => v !== 'auto')
+				overrides.alignSelf = pickRandom(alignOptions)
+			}
+
+			if (quizIncludeOrder && Math.random() > 0.5) overrides.order = Math.floor(Math.random() * itemCount)
+
+			if (quizIncludeShrinkGrow && Math.random() > 0.5) {
+				const nextGrow = Math.floor(Math.random() * 4)
+				const nextShrink = Math.floor(Math.random() * 4)
+
+				if (nextGrow !== item.flexGrow) overrides.flexGrow = nextGrow
+				if (nextShrink !== item.flexShrink) overrides.flexShrink = nextShrink
+			}
 
 			if (Object.keys(overrides).length > 0) itemOverrides[item.id] = overrides
 		})
@@ -243,6 +296,8 @@ const App = () => {
 	}
 
 	const startNewQuiz = () => {
+		if (quizHistory.length >= quizQuestionCount) return
+
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
 		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
 		setQuizHistory((prev) => [...prev, generateQuizQuestion()])
@@ -250,6 +305,19 @@ const App = () => {
 		setCountdown(0)
 		setShowSuccess(false)
 		setIsPaused(false)
+		setQuizCompleted(false)
+	}
+
+	const startQuizSession = () => {
+		setQuizHistory([])
+		setHistoryIndex(-1)
+		setScore(0)
+		setShowHint(false)
+		setOutlineOnly(false)
+		setCountdown(0)
+		setIsPaused(false)
+		setQuizCompleted(false)
+		startNewQuiz()
 	}
 
 	const skipToNext = () => startNewQuiz()
@@ -257,22 +325,38 @@ const App = () => {
 	const goForward = () => { if (historyIndex < quizHistory.length - 1) { setHistoryIndex(historyIndex + 1); setShowSuccess(false); setCountdown(0); } }
 
 	useEffect(() => {
-		if (isQuizMode && quizHistory.length === 0) startNewQuiz()
+		if (!isQuizMode) setShowQuizOptions(false)
 	}, [isQuizMode])
 
 	useEffect(() => {
+		if (!isQuizMode || !showQuizOptions) return
+
+		const handleKeyDown = e => {
+			if (e.key === 'Escape') setShowQuizOptions(false)
+		}
+
+		window.addEventListener('keydown', handleKeyDown)
+
+		return () => window.removeEventListener('keydown', handleKeyDown)
+	}, [isQuizMode, showQuizOptions])
+
+	useEffect(() => {
 		let interval
-		if (showSuccess && !isPaused && countdown < 100) {
+		if (showSuccess && !isPaused && countdown < 100 && !quizCompleted && quizHistory.length < quizQuestionCount) {
 			interval = setInterval(() => {
-				setCountdown((prev) => {
+				setCountdown(prev => {
 					const next = prev + (100 / (QUIZ_DELAY_MS / 50))
-					if (next >= 100) { clearInterval(interval); startNewQuiz(); return 100 }
+					if (next >= 100) {
+						clearInterval(interval)
+						startNewQuiz()
+						return 100
+					}
 					return next
 				})
 			}, 50)
 		}
 		return () => clearInterval(interval)
-	}, [showSuccess, isPaused, countdown])
+	}, [showSuccess, isPaused, countdown, quizCompleted, quizHistory, quizQuestionCount])
 
 	useEffect(() => {
 		if (!isQuizMode || historyIndex === -1 || historyIndex !== quizHistory.length - 1 || showSuccess) return
@@ -287,11 +371,26 @@ const App = () => {
 				const gRect = ghost.getBoundingClientRect()
 				return Math.abs(rRect.left - gRect.left) <= 2 && Math.abs(rRect.top - gRect.top) <= 2 && Math.abs(rRect.width - gRect.width) <= 2 && Math.abs(rRect.height - gRect.height) <= 2
 			})
-			if (isVisualMatch) { setScore((s) => s + 1); setShowSuccess(true); setCountdown(0) }
+			if (isVisualMatch) {
+				setScore(s => s + 1)
+
+				const isLastQuestion =
+					quizHistory.length >= quizQuestionCount &&
+					historyIndex === quizQuestionCount - 1
+
+				if (isLastQuestion) {
+					setQuizCompleted(true)
+					setShowSuccess(false)
+					setCountdown(0)
+				} else {
+					setShowSuccess(true)
+					setCountdown(0)
+				}
+			}
 		}
 		const timer = setTimeout(checkMatch, 450)
 		return () => clearTimeout(timer)
-	}, [containerStyles, items, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess])
+	}, [containerStyles, items, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess, quizQuestionCount])
 
 	// Updated RadioGroup with reduced py-1 vertical padding
 	const RadioGroup = ({ name, options, value, onChange, disabled, className = '' }) => (
@@ -344,7 +443,7 @@ const App = () => {
 						<span className="hidden md:inline">Playground</span>
 					</button>
 					<button
-						onClick={() => { setIsQuizMode(true); if (quizHistory.length === 0) startNewQuiz() }}
+						onClick={() => { setIsQuizMode(true); setShowQuizOptions(true) }}
 						className={`flex items-center gap-2 px-4 py-2.5 md:px-6 rounded-lg font-bold text-sm transition-all ${isQuizMode ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}
 						title="Quiz Mode"
 						aria-label="Quiz Mode"
@@ -373,29 +472,62 @@ const App = () => {
 								onClick={() => setShowAxes(!showAxes)}
 								className={`flex items-center justify-center w-9 h-9 rounded-xl border transition-all ${showAxes ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
 								title="Toggle Axes Overlay"
+								aria-label={showAxes ? 'Hide axes overlay' : 'Show axes overlay'}
 							>
 								<Axis3d size={18} strokeWidth={2.5} />
 							</button>
+							{/* Reset container and items to defaults */}
+							<button
+								type="button"
+								onClick={resetAllToDefaults}
+								className="flex items-center justify-center w-9 h-9 rounded-xl border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 transition-all"
+								title="Reset container and items to defaults"
+								aria-label="Reset container and all items to default values"
+							>
+								<Undo2 size={18} strokeWidth={2.5} />
+							</button>
 							{isQuizMode && (
-								<div className="flex items-center bg-white/80 rounded-xl p-1 border border-white/50 shadow-sm h-[38px] box-border" role="group" aria-label="Quiz difficulty">
-									{['easy', 'medium', 'hard'].map((level) => (
-										<button
-											key={level}
-											onClick={() => setQuizDifficulty(level)}
-											aria-pressed={quizDifficulty === level}
-											className={`px-2.5 py-1 rounded-lg text-[10px] font-bold capitalize transition-all ${quizDifficulty === level ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white hover:text-slate-700'}`}
-										>
-											{level}
-										</button>
-									))}
-								</div>
+								<button
+									type="button"
+									onClick={() => setShowQuizOptions(true)}
+									className="flex items-center bg-white/80 rounded-xl px-3 border border-white/50 shadow-sm h-[38px] box-border text-[11px] font-semibold text-slate-600 hover:bg-white hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+									title="Restart quiz"
+									aria-label="Restart quiz"
+								>
+									<Undo2 size={14} className="mr-1.5" />
+									<span className="hidden sm:inline">Restart Quiz</span>
+								</button>
 							)}
 						</div>
 
 						{isQuizMode && (
 							<>
 								<div className="flex-grow flex justify-center px-4">
-									{showSuccess ? (
+									{quizCompleted ? (
+										<div className="relative flex items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-300 w-full max-w-md bg-white/80 rounded-xl border border-emerald-100 shadow-lg px-4 py-2.5 overflow-hidden">
+											<div className="pointer-events-none absolute inset-0">
+												<span className="absolute -top-1 left-6 w-1.5 h-3 bg-pink-400 rounded-sm rotate-12" />
+												<span className="absolute top-3 right-4 w-1.5 h-3 bg-sky-400 rounded-sm -rotate-6" />
+												<span className="absolute bottom-1 left-10 w-1 h-2 bg-amber-400 rounded-sm rotate-3" />
+												<span className="absolute top-1/2 left-1/3 w-1.5 h-3 bg-violet-400 rounded-sm -rotate-12" />
+												<span className="absolute bottom-2 right-8 w-1 h-2 bg-emerald-400 rounded-sm rotate-8" />
+												<span className="absolute top-0 right-1/3 w-1 h-2 bg-rose-400 rounded-sm rotate-6" />
+											</div>
+											<div className="relative flex items-center gap-2.5">
+												<PartyPopper className="text-emerald-500" size={18} />
+												<div className="flex flex-col">
+													<span className="text-emerald-700 font-extrabold text-xs uppercase tracking-tight">Quiz complete!</span>
+													<span className="text-[11px] text-slate-600">Nice work matching all layouts.</span>
+												</div>
+											</div>
+											<div className="relative flex flex-col items-end gap-0.5">
+												<span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Score</span>
+												<span className="text-sm font-black text-emerald-600">
+													{score} / {quizQuestionCount}
+												</span>
+											</div>
+										</div>
+									) : showSuccess ? (
 										<div className="flex items-center gap-4 animate-in slide-in-from-top-2 duration-300 w-full max-w-sm">
 											<div className="flex items-center gap-2.5 shrink-0">
 												<PartyPopper className="text-emerald-500" size={16} />
@@ -429,7 +561,7 @@ const App = () => {
 											<div className="flex items-center gap-0.5">
 												<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600" title="Back"><ChevronLeft size={14} /></button>
 												<span className="px-3 py-1.5 text-[11px] font-semibold text-slate-600 min-w-[4rem] text-center" aria-live="polite">
-													{historyIndex + 1} / {quizHistory.length || 1}
+													{historyIndex < 0 ? '—' : historyIndex + 1} / {quizQuestionCount}
 												</span>
 												<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white disabled:opacity-30 rounded-lg transition-all text-slate-600"><ChevronRight size={14} /></button>
 											</div>
@@ -500,13 +632,14 @@ const App = () => {
 							</div>
 						)}
 
-						{/* QUIZ GHOSTS */}
+						{/* QUIZ GHOSTS — use only target overrides + defaults so ghost doesn't follow user's edits */}
 						{isQuizMode && quizTarget && (
 							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-flex z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
-								{items.slice(0, itemCount).map((item) => {
+								{items.slice(0, itemCount).map((item, idx) => {
+									const defaultItem = DEFAULT_ITEMS[idx] || item
 									const overrides = quizTarget.itemOverrides?.[item.id] || {}
 									return (
-										<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box', order: overrides.order ?? item.order, alignSelf: overrides.alignSelf ?? item.alignSelf }}>
+										<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box', order: overrides.order ?? defaultItem.order, alignSelf: overrides.alignSelf ?? defaultItem.alignSelf, flexGrow: overrides.flexGrow ?? defaultItem.flexGrow, flexShrink: overrides.flexShrink ?? defaultItem.flexShrink }}>
 											<span className="font-bold text-2xl opacity-0">{item.id}</span>
 										</div>
 									)
@@ -567,6 +700,8 @@ const App = () => {
 												<b className="text-violet-400">#{id}</b>
 												{ov.alignSelf && <span>ALIGN-SELF: <b className="text-sky-400">{ov.alignSelf}</b></span>}
 												{ov.order !== undefined && <span>ORDER: <b className="text-amber-400">{ov.order}</b></span>}
+												{ov.flexGrow !== undefined && <span>GROW: <b className="text-emerald-400">{ov.flexGrow}</b></span>}
+												{ov.flexShrink !== undefined && <span>SHRINK: <b className="text-rose-400">{ov.flexShrink}</b></span>}
 											</span>
 										))}
 									</div>
@@ -756,6 +891,136 @@ const App = () => {
 					</div>
 				</div>
 			</main>
+
+			{isQuizMode && showQuizOptions && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="quiz-options-title"
+					onClick={() => setShowQuizOptions(false)}
+				>
+					<div
+						className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4"
+						onClick={e => e.stopPropagation()}
+					>
+						<div className="flex items-start justify-between gap-3">
+							<div>
+								<h2 id="quiz-options-title" className="text-lg font-bold text-slate-900">Quiz options</h2>
+								<p className="mt-1 text-xs text-slate-500">
+									Choose which kinds of flexbox changes to include in this quiz.
+								</p>
+							</div>
+						</div>
+
+						<div className="space-y-4">
+							<div>
+								<p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Difficulty preset</p>
+								<div className="flex gap-1.5" role="radiogroup" aria-label="Quiz difficulty preset">
+									{['easy', 'medium', 'hard', 'custom'].map(level => (
+										<button
+											key={level}
+											type="button"
+											onClick={() => applyDifficultyPreset(level)}
+											className={`flex-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold capitalize border transition-all ${
+												quizDifficulty === level
+													? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+													: 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+											}`}
+											aria-pressed={quizDifficulty === level}
+										>
+											{level}
+										</button>
+									))}
+								</div>
+							</div>
+
+							<div className="grid grid-cols-1 gap-2">
+								<label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-slate-50/60 cursor-pointer">
+									<div className="text-xs text-slate-700">
+										<p className="font-semibold">Individual item alignment</p>
+										<p className="text-[10px] text-slate-500">Include align-self overrides on specific boxes.</p>
+									</div>
+									<input
+										type="checkbox"
+										checked={quizIncludeItemProps}
+										onChange={e => { setQuizIncludeItemProps(e.target.checked); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+										aria-label="Toggle individual item configuration in quiz"
+									/>
+								</label>
+
+								<label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-slate-50/60 cursor-pointer">
+									<div className="text-xs text-slate-700">
+										<p className="font-semibold">Order configuration</p>
+										<p className="text-[10px] text-slate-500">Allow reordering items using the order property.</p>
+									</div>
+									<input
+										type="checkbox"
+										checked={quizIncludeOrder}
+										onChange={e => { setQuizIncludeOrder(e.target.checked); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+										aria-label="Toggle order configuration in quiz"
+									/>
+								</label>
+
+								<label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-slate-50/60 cursor-pointer">
+									<div className="text-xs text-slate-700">
+										<p className="font-semibold">Shrink &amp; grow configuration</p>
+										<p className="text-[10px] text-slate-500">Include flex-grow and flex-shrink changes.</p>
+									</div>
+									<input
+										type="checkbox"
+										checked={quizIncludeShrinkGrow}
+										onChange={e => { setQuizIncludeShrinkGrow(e.target.checked); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+										aria-label="Toggle shrink and grow configuration in quiz"
+									/>
+								</label>
+							</div>
+
+							<div>
+								<label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+									Number of questions
+								</label>
+								<div className="flex items-center gap-3">
+									<input
+										type="range"
+										min="4"
+										max="20"
+										step="1"
+										value={quizQuestionCount}
+										onChange={e => { setQuizQuestionCount(parseInt(e.target.value, 10) || 4); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										className="flex-1 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+										aria-label="Number of questions in quiz"
+									/>
+									<span className="inline-flex items-center justify-center px-2 py-0.5 rounded-md bg-slate-100 text-[11px] font-mono font-bold text-slate-700 min-w-[2.5rem]">
+										{quizQuestionCount}
+									</span>
+								</div>
+							</div>
+						</div>
+
+						<div className="flex justify-between items-center pt-2">
+							<button
+								type="button"
+								onClick={() => setShowQuizOptions(false)}
+								className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={() => { setShowQuizOptions(false); startQuizSession() }}
+								className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500"
+							>
+								<PlayCircle size={16} />
+								Start quiz
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 
 			<style>{`
         input[type='range']::-webkit-slider-thumb {
