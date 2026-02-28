@@ -83,6 +83,7 @@ const App = () => {
 	const [isQuizMode, setIsQuizMode] = useState(false)
 	const [showHint, setShowHint] = useState(false)
 	const [score, setScore] = useState(0)
+	const scoredQuestionsRef = useRef(new Set())
 	const [itemOpacity, setItemOpacity] = useState(1)
 	const [outlineOnly, setOutlineOnly] = useState(false) // Toggle: transparent bg + thin outline, no text
 	const [quizDifficulty, setQuizDifficulty] = useState('medium') // 'easy' | 'medium' | 'hard' | 'custom'
@@ -450,6 +451,7 @@ const App = () => {
 	}
 
 	const startQuizSession = () => {
+		scoredQuestionsRef.current = new Set()
 		setQuizHistory([])
 		setHistoryIndex(-1)
 		setScore(0)
@@ -798,7 +800,9 @@ const App = () => {
 
 		const checkMatch = () => {
 			if (!checkPropsMatch()) return
+			if (scoredQuestionsRef.current.has(historyIndex)) return
 
+			scoredQuestionsRef.current.add(historyIndex)
 			setScore(s => s + 1)
 
 			const isLastQuestion =
@@ -1112,39 +1116,47 @@ const App = () => {
 						>
 							{/* AXES OVERLAY */}
 							{showAxes && (
-								<div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
-									<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2' : 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2'}`}>
-										<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
-											isVerticalFlow
-												? (isReverse ? 'top-0 left-0 -translate-x-1/2 rotate-180' : 'bottom-0 left-0 -translate-x-1/2')
-												: (isReverse ? 'left-0 top-0 -translate-y-1/2 rotate-180' : 'right-0 top-0 -translate-y-1/2')
-										}`}>
-											{isVerticalFlow ? <ArrowDown size={14} strokeWidth={4} /> : <ArrowRight size={14} strokeWidth={4} />}
-										</div>
-										<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
-											isVerticalFlow
-												? 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
-												: 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
-										}`}>
-											Main Axis
-										</div>
-									</div>
+							<div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+								{/* Main axis line */}
+								<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2' : 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2'}`} />
 
-									<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2' : 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2'}`}>
-										<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
-											isVerticalFlow ? 'right-0 top-0 -translate-y-1/2' : 'bottom-0 left-0 -translate-x-1/2'
-										}`}>
-											{isVerticalFlow ? <ArrowRight size={14} strokeWidth={4} /> : <ArrowDown size={14} strokeWidth={4} />}
-										</div>
-										<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
-											isVerticalFlow
-												? 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
-												: 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
-										}`}>
-											Cross Axis
-										</div>
-									</div>
+								{/* Main axis arrow */}
+								<div className={`absolute transition-all duration-500 text-slate-400/40 ${
+									isVerticalFlow
+										? (isReverse ? 'left-1/2 top-0 -translate-x-1/2 rotate-180' : 'left-1/2 bottom-0 -translate-x-1/2')
+										: (isReverse ? 'top-1/2 left-0 -translate-y-1/2 rotate-180' : 'top-1/2 right-0 -translate-y-1/2')
+								}`}>
+									{isVerticalFlow ? <ArrowDown size={14} strokeWidth={4} /> : <ArrowRight size={14} strokeWidth={4} />}
 								</div>
+
+								{/* Main axis label */}
+								<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
+									isVerticalFlow
+										? 'left-1/2 top-1/4 -translate-x-[calc(50%+1em)] -rotate-90 origin-center'
+										: 'top-1/2 left-1/4 -translate-y-[calc(50%+1em)] -translate-x-1/2'
+								}`}>
+									Main Axis
+								</div>
+
+								{/* Cross axis line */}
+								<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2' : 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2'}`} />
+
+								{/* Cross axis arrow */}
+								<div className={`absolute transition-all duration-500 text-slate-400/40 ${
+									isVerticalFlow ? 'top-1/2 right-0 -translate-y-1/2' : 'left-1/2 bottom-0 -translate-x-1/2'
+								}`}>
+									{isVerticalFlow ? <ArrowRight size={14} strokeWidth={4} /> : <ArrowDown size={14} strokeWidth={4} />}
+								</div>
+
+								{/* Cross axis label */}
+								<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
+									isVerticalFlow
+										? 'top-1/2 left-1/4 -translate-y-[calc(50%+1em)] -translate-x-1/2'
+										: 'left-1/2 top-1/4 -translate-x-[calc(50%+1em)] -rotate-90 origin-center'
+								}`}>
+									Cross Axis
+								</div>
+							</div>
 							)}
 
 							{/* QUIZ GHOSTS */}
