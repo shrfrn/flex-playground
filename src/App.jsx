@@ -957,11 +957,10 @@ const App = () => {
 								<button onClick={() => setItemCount(Math.max(1, itemCount - 1))} className="p-1 rounded hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-600" aria-label="Decrease box count"><Minus size={12}/></button>
 								<span className="text-xs font-bold w-4 text-center tabular-nums">{itemCount}</span>
 								<button onClick={() => setItemCount(Math.min(5, itemCount + 1))} className="p-1 rounded hover:bg-slate-100 transition-all text-slate-400 hover:text-slate-600" aria-label="Increase box count"><Plus size={12}/></button>
-								<span className="text-[9px] font-bold uppercase text-slate-400 ml-0.5">Boxes</span>
 							</div>
 							<button
 								onClick={() => setShowAxes(!showAxes)}
-								className={`flex items-center justify-center h-6 w-6 rounded-md border transition-all outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 ${showAxes ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
+								className={`flex items-center justify-center h-6 w-6 rounded-md border transition-all outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 ${showAxes ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white/80 border-white/50 text-slate-400 hover:bg-white hover:text-slate-600'}`}
 								title="Toggle axes overlay"
 								aria-label={showAxes ? 'Hide axes overlay' : 'Show axes overlay'}
 							>
@@ -1175,7 +1174,7 @@ const App = () => {
 							)}
 
 							{/* REAL ITEMS */}
-							<div ref={realContainerRef} className="absolute inset-0 transition-flex z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, flexWrap: containerStyles.flexWrap, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
+							<div ref={realContainerRef} className="absolute inset-0 transition-flex z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, flexWrap: containerStyles.flexWrap, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box', border: '1px solid rgba(148, 163, 184, 0.35)' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
 								{items.slice(0, itemCount).map((item) => {
 									const itemColor = `hsl(${item.id * 50 + 200}, 70%, 60%)`
 									const isOutline = outlineOnly
@@ -1215,8 +1214,8 @@ const App = () => {
 						<div
 							className="resize-handle resize-handle-right absolute top-0 z-30 flex items-center justify-center"
 							style={{
-								left: effectiveMaxWidth ? `${effectiveMaxWidth - 5}px` : 'calc(100% - 5px)',
-								width: '10px',
+								left: effectiveMaxWidth ? `${effectiveMaxWidth - 8}px` : 'calc(100% - 8px)',
+								width: '16px',
 								height: effectiveMaxHeight ? `${effectiveMaxHeight}px` : '100%',
 								cursor: 'col-resize',
 							}}
@@ -1225,15 +1224,15 @@ const App = () => {
 							title="Drag to resize width (double-click to reset)"
 							aria-label="Resize container width"
 						>
-							<div className="handle-grip w-[3px] h-8 rounded-full bg-slate-400/40 transition-all" />
+							<GripVertical size={14} className="handle-grip absolute left-1/2 top-1/2 -translate-x-[105%] -translate-y-[145%] -mt-[2px] text-slate-400/70 drop-shadow-sm transition-all" aria-hidden />
 						</div>
 
 						{/* Bottom handle */}
 						<div
 							className="resize-handle resize-handle-bottom absolute left-0 z-30 flex items-center justify-center"
 							style={{
-								top: effectiveMaxHeight ? `${effectiveMaxHeight - 5}px` : 'calc(100% - 5px)',
-								height: '10px',
+								top: effectiveMaxHeight ? `${effectiveMaxHeight - 8}px` : 'calc(100% - 8px)',
+								height: '16px',
 								width: effectiveMaxWidth ? `${effectiveMaxWidth}px` : '100%',
 								cursor: 'row-resize',
 							}}
@@ -1242,7 +1241,7 @@ const App = () => {
 							title="Drag to resize height (double-click to reset)"
 							aria-label="Resize container height"
 						>
-							<div className="handle-grip h-[3px] w-8 rounded-full bg-slate-400/40 transition-all" />
+							<GripVertical size={14} className="handle-grip absolute left-1/2 top-1/2 -translate-y-[105%] translate-x-[95%] -ml-[3px] rotate-90 text-slate-400/70 drop-shadow-sm transition-all" aria-hidden />
 						</div>
 
 						{/* Corner handle */}
@@ -1810,15 +1809,8 @@ const App = () => {
         }
         .resize-handle:hover .handle-grip,
         .resize-handle:active .handle-grip {
-          background-color: rgba(59, 130, 246, 0.7);
-        }
-        .resize-handle-right:hover .handle-grip,
-        .resize-handle-right:active .handle-grip {
-          height: 3rem;
-        }
-        .resize-handle-bottom:hover .handle-grip,
-        .resize-handle-bottom:active .handle-grip {
-          width: 3rem;
+          color: rgba(59, 130, 246, 0.7);
+          scale: 1.15;
         }
         .resize-handle-corner:hover .handle-grip,
         .resize-handle-corner:active .handle-grip {
