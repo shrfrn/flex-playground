@@ -479,16 +479,32 @@ const App = () => {
 				overrides.alignSelf = pickRandom(alignOptions)
 			}
 
-			if (quizIncludeShrinkGrow && Math.random() > 0.5) {
-				const nextGrow = Math.floor(Math.random() * 4)
-				const nextShrink = Math.floor(Math.random() * 4)
-
-				if (nextGrow !== item.flexGrow) overrides.flexGrow = nextGrow
-				if (nextShrink !== item.flexShrink) overrides.flexShrink = nextShrink
-			}
-
 			if (Object.keys(overrides).length > 0) itemOverrides[item.id] = overrides
 		})
+
+		if (quizIncludeShrinkGrow && Math.random() > 0.5) {
+			const maxAffectedCount = activeItems.length <= 2 ? 1 : 2
+			const pickAffectedCount = () => Math.min(activeItems.length, Math.floor(Math.random() * maxAffectedCount) + 1)
+			const pickTargets = count => [...activeItems].sort(() => Math.random() - 0.5).slice(0, count)
+			const applyOverrides = (propKey, valuePicker) => {
+				const selected = pickTargets(pickAffectedCount())
+				selected.forEach(selectedItem => {
+					if (!itemOverrides[selectedItem.id]) itemOverrides[selectedItem.id] = {}
+					itemOverrides[selectedItem.id][propKey] = valuePicker()
+				})
+			}
+
+			const includeGrow = Math.random() > 0.5
+			const includeShrink = Math.random() > 0.5
+
+			if (!includeGrow && !includeShrink) {
+				if (Math.random() > 0.5) applyOverrides('flexGrow', () => 1)
+				else applyOverrides('flexShrink', () => pickRandom([0, 2]))
+			} else {
+				if (includeGrow) applyOverrides('flexGrow', () => 1)
+				if (includeShrink) applyOverrides('flexShrink', () => pickRandom([0, 2]))
+			}
+		}
 
 		if (quizIncludeOrder && Math.random() > 0.3) {
 			const defaultVisual = getVisualOrder(activeItems, it => defaultItems.find(d => d.id === it.id)?.order ?? 0)
@@ -1699,7 +1715,7 @@ const App = () => {
 									<div className="flex items-center flex-nowrap overflow-x-auto min-w-0 scrollbar-hide min-h-[2.25rem]">
 										<div className="flex items-center gap-2 flex-nowrap shrink-0">
 											<span className="text-slate-400 text-xs font-mono flex items-center gap-1.5 w-[8.5rem] shrink-0"><FileCode size={12} /> {activeCodeTab === 'container' ? 'container' : `item-${activeCodeTab}`}.css</span>
-											<div className="flex items-center gap-2 flex-nowrap ml-10 shrink-0">
+											<div className="flex items-center gap-2 flex-nowrap ml-10 shrink-0 pr-4">
 											<div className="relative inline-block">
 												<button onClick={() => setActiveCodeTab('container')} className={`block px-4 py-2 rounded-lg text-xs font-mono font-semibold transition-colors text-left ${activeCodeTab === 'container' ? 'text-emerald-400 bg-slate-900/80' : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'}`}>
 													Container
