@@ -4,7 +4,7 @@ import {
 	Copy, Check, Award, PartyPopper, Eye, EyeOff, Layout as LayoutIcon,
 	ChevronLeft, ChevronRight, Pause, PlayCircle, SkipForward,
 	SlidersHorizontal, FileCode, Box, GraduationCap, Gamepad2,
-	ArrowRight, ArrowDown, Axis3d, GripVertical, Info,
+	ArrowRight, ArrowDown, Axis3d, GripVertical, Info, Undo2, Redo2,
 	ArrowLeftToLine, RotateCcw,
 } from 'lucide-react'
 
@@ -144,8 +144,8 @@ const App = () => {
 		const d = DEFAULT_CONTAINER_STYLES
 		const c = containerStyles
 		const propsMatch = d.display === c.display && d.flexDirection === c.flexDirection && d.justifyContent === c.justifyContent && d.alignItems === c.alignItems && d.flexWrap === c.flexWrap && d.gap === c.gap
-		return !propsMatch || containerCodeDirty || containerMaxWidth !== null || containerMaxHeight !== null
-	}, [containerStyles, containerCodeDirty, containerMaxWidth, containerMaxHeight])
+		return !propsMatch || containerCodeDirty
+	}, [containerStyles, containerCodeDirty])
 
 	const currentItemId = selectedId > 0 ? selectedId : 1
 	const isCurrentItemTainted = useMemo(() => {
@@ -157,12 +157,27 @@ const App = () => {
 		const propsMatch = def.alignSelf === cur.alignSelf && def.flexGrow === cur.flexGrow && def.flexShrink === cur.flexShrink && def.order === cur.order && def.width === cur.width && def.height === cur.height
 		return !propsMatch || itemCodeDirty[idx]
 	}, [items, currentItemId, itemCodeDirty, defaultItems])
+
+	const isAnyItemTainted = useMemo(() =>
+		items.slice(0, itemCount).some((cur, idx) => {
+			const def = defaultItems[idx]
+			if (!def || !cur) return false
+			const propsMatch = def.alignSelf === cur.alignSelf && def.flexGrow === cur.flexGrow && def.flexShrink === cur.flexShrink && def.order === cur.order && def.width === cur.width && def.height === cur.height
+			return !propsMatch || itemCodeDirty[idx]
+		}),
+	[items, itemCount, defaultItems, itemCodeDirty])
 	const [copyFeedback, setCopyFeedback] = useState(false)
+	const [canUndo, setCanUndo] = useState(false)
+	const [canRedo, setCanRedo] = useState(false)
 	const realContainerRef = useRef(null)
 	const ghostContainerRef = useRef(null)
 	const mainAreaRef = useRef(null)
 	const isQuizModeRef = useRef(false)
 	const userWorkRef = useRef(null)
+	const configHistoryRef = useRef({ past: [], future: [] })
+	const isApplyingHistoryRef = useRef(false)
+	const hasUserInteractedRef = useRef(false)
+	const shouldReinitializeHistoryRef = useRef(false)
 	const rightHandleDragRef = useRef(null)
 	const bottomHandleDragRef = useRef(null)
 	const cornerHandleDragRef = useRef(null)
@@ -178,6 +193,51 @@ const App = () => {
 		alignItems: ['stretch', 'start', 'end', 'center', 'baseline'],
 		flexWrap: ['nowrap', 'wrap', 'wrap-reverse'],
 		alignSelf: ['auto', 'start', 'end', 'center', 'baseline', 'stretch'],
+	}
+
+	const getConfigSnapshot = () => ({
+		containerStyles: { ...containerStyles },
+		items: items.map(it => ({ ...it })),
+		itemCount,
+	})
+
+	const areSnapshotsEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+
+	const syncUndoRedoAvailability = () => {
+		setCanUndo(configHistoryRef.current.past.length > 1)
+		setCanRedo(configHistoryRef.current.future.length > 0)
+	}
+
+	const markUserInteraction = () => {
+		hasUserInteractedRef.current = true
+	}
+
+	const applyConfigSnapshot = snapshot => {
+		isApplyingHistoryRef.current = true
+		setContainerStyles({ ...snapshot.containerStyles })
+		setItems(snapshot.items.map(it => ({ ...it })))
+		setItemCount(snapshot.itemCount)
+		setTimeout(() => { isApplyingHistoryRef.current = false }, 0)
+	}
+
+	const onUndo = () => {
+		if (configHistoryRef.current.past.length <= 1) return
+		const current = configHistoryRef.current.past.pop()
+		if (!current) return
+		configHistoryRef.current.future.unshift(current)
+		const previous = configHistoryRef.current.past[configHistoryRef.current.past.length - 1]
+		if (!previous) return
+		applyConfigSnapshot(previous)
+		syncUndoRedoAvailability()
+	}
+
+	const onRedo = () => {
+		if (configHistoryRef.current.future.length === 0) return
+		const next = configHistoryRef.current.future.shift()
+		if (!next) return
+		configHistoryRef.current.past.push(next)
+		applyConfigSnapshot(next)
+		syncUndoRedoAvailability()
 	}
 
 	const applyDifficultyPreset = preset => {
@@ -249,6 +309,43 @@ const App = () => {
 		if (typeof activeCodeTab === 'number' && activeCodeTab > itemCount) setActiveCodeTab('container')
 	}, [itemCount])
 
+	useEffect(() => {
+		const snapshot = getConfigSnapshot()
+		const history = configHistoryRef.current
+
+		if (shouldReinitializeHistoryRef.current) {
+			history.past = [snapshot]
+			history.future = []
+			shouldReinitializeHistoryRef.current = false
+			syncUndoRedoAvailability()
+			return
+		}
+
+		if (history.past.length === 0) {
+			history.past = [snapshot]
+			history.future = []
+			syncUndoRedoAvailability()
+			return
+		}
+
+		if (isApplyingHistoryRef.current) return
+
+		// Ignore startup/programmatic syncs until the user actually interacts.
+		if (!hasUserInteractedRef.current) {
+			history.past = [snapshot]
+			history.future = []
+			syncUndoRedoAvailability()
+			return
+		}
+
+		const last = history.past[history.past.length - 1]
+		if (areSnapshotsEqual(last, snapshot)) return
+
+		history.past.push(snapshot)
+		history.future = []
+		syncUndoRedoAvailability()
+	}, [containerStyles, items, itemCount])
+
 	const getDisplayedCode = () => {
 		if (activeCodeTab === 'container') return cssCode
 		const idx = activeCodeTab - 1
@@ -259,8 +356,6 @@ const App = () => {
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
 		setCssCode(generateContainerCssFromDefaults())
 		setContainerCodeDirty(false)
-		setContainerMaxWidth(null)
-		setContainerMaxHeight(null)
 		setCodeResetKey(k => k + 1)
 	}
 	const resetItemCode = (itemIndex) => {
@@ -279,6 +374,8 @@ const App = () => {
 	}
 
 	const resetAllToDefaults = () => {
+		if (!isContainerTainted && !isAnyItemTainted) return
+		shouldReinitializeHistoryRef.current = true
 		resetContainerCode()
 		setItems(defaultItems.map(item => ({ ...item })))
 		setItemCodes(defaultItems.map((_, idx) => generateItemCssFromDefaults(idx + 1, defaultItems)))
@@ -919,7 +1016,7 @@ const App = () => {
 	}
 
 	return (
-		<div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 font-sans">
+		<div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 font-sans" onPointerDownCapture={markUserInteraction} onKeyDownCapture={markUserInteraction}>
 			<header className="max-w-7xl mx-auto mb-6 flex flex-row flex-wrap items-center justify-between gap-4">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight text-slate-900 leading-tight">Flexbox Playground</h1>
@@ -949,7 +1046,7 @@ const App = () => {
 			</header>
 
 			<main className="max-w-7xl mx-auto space-y-4">
-				<div className="relative aspect-[21/8] flex flex-col w-full bg-slate-200 rounded-[2rem] overflow-hidden shadow-inner border-[10px] border-white">
+				<div className="relative aspect-[21/8] flex flex-col w-full bg-slate-200 rounded-tl-[2rem] rounded-tr-[2rem] rounded-bl-none rounded-br-none overflow-hidden shadow-inner border-[10px] border-white">
 					<div className="bg-white/60 backdrop-blur-md border-b border-white px-6 py-1.5 flex items-center justify-between min-h-[36px] z-30">
 						<div className="flex items-center gap-2">
 							{/* Box count */}
@@ -968,23 +1065,33 @@ const App = () => {
 							</button>
 							<button
 								type="button"
-								onClick={resetAllToDefaults}
-								className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
-								title="Reset container and items to defaults"
-								aria-label="Reset container and all items to default values"
+								onClick={onUndo}
+								disabled={!canUndo}
+								className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-30 disabled:hover:bg-white/80 disabled:hover:text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+								title="Undo"
+								aria-label="Undo"
 							>
-								<ArrowLeftToLine size={14} strokeWidth={2.5} />
+								<Undo2 size={13} strokeWidth={2.5} />
 							</button>
-							{isQuizMode && (
+							<button
+								type="button"
+								onClick={onRedo}
+								disabled={!canRedo}
+								className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 disabled:opacity-30 disabled:hover:bg-white/80 disabled:hover:text-slate-400 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+								title="Redo"
+								aria-label="Redo"
+							>
+								<Redo2 size={13} strokeWidth={2.5} />
+							</button>
+							{(isContainerTainted || isAnyItemTainted) && (
 								<button
 									type="button"
-									onClick={() => setShowQuizOptions(true)}
-									className="flex items-center gap-1 h-6 px-2 rounded-md border border-white/50 bg-white/80 shadow-sm text-[10px] font-semibold text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
-									title="Restart quiz"
-									aria-label="Restart quiz"
+									onClick={resetAllToDefaults}
+									className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-400 hover:bg-white hover:text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+									title="Reset container and items to defaults"
+									aria-label="Reset container and all items to default values"
 								>
-									<RotateCcw size={12} />
-									<span className="hidden sm:inline">Restart Quiz</span>
+									<ArrowLeftToLine size={14} strokeWidth={2.5} />
 								</button>
 							)}
 						</div>
@@ -1009,6 +1116,15 @@ const App = () => {
 										>
 											<Box size={12} />
 											Outline
+										</button>
+										<button
+											type="button"
+											onClick={() => setShowQuizOptions(true)}
+											className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+											title="Restart quiz"
+											aria-label="Restart quiz"
+										>
+											<RotateCcw size={12} />
 										</button>
 									</div>
 								) : showSuccess ? (
@@ -1037,6 +1153,15 @@ const App = () => {
 												<Box size={12} />
 												Outline
 											</button>
+											<button
+												type="button"
+												onClick={() => setShowQuizOptions(true)}
+												className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+												title="Restart quiz"
+												aria-label="Restart quiz"
+											>
+												<RotateCcw size={12} />
+											</button>
 										</div>
 									) : (
 										<div className="flex items-center gap-2 h-6">
@@ -1061,6 +1186,15 @@ const App = () => {
 											>
 												<Box size={12} />
 												Outline
+											</button>
+											<button
+												type="button"
+												onClick={() => setShowQuizOptions(true)}
+												className="flex items-center justify-center h-6 w-6 rounded-md border border-white/50 bg-white/80 shadow-sm text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
+												title="Restart quiz"
+												aria-label="Restart quiz"
+											>
+												<RotateCcw size={12} />
 											</button>
 										</div>
 									)}
@@ -1248,10 +1382,10 @@ const App = () => {
 						<div
 							className="resize-handle resize-handle-corner absolute z-30 flex items-center justify-center"
 							style={{
-								left: effectiveMaxWidth ? `min(${effectiveMaxWidth - 10}px, calc(100% - 26px))` : 'calc(100% - 26px)',
-								top: effectiveMaxHeight ? `min(${effectiveMaxHeight - 10}px, calc(100% - 26px))` : 'calc(100% - 26px)',
-								width: '20px',
-								height: '20px',
+								left: effectiveMaxWidth ? `${effectiveMaxWidth - 14}px` : 'calc(100% - 14px)',
+								top: effectiveMaxHeight ? `${effectiveMaxHeight - 14}px` : 'calc(100% - 14px)',
+								width: '16px',
+								height: '16px',
 								cursor: 'nwse-resize',
 							}}
 							onMouseDown={onCornerHandleDrag}
@@ -1425,9 +1559,9 @@ const App = () => {
 					</div>
 				</div>
 
-				<div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+				<div className="bg-white rounded-b-[1.5rem] rounded-t-none shadow-sm border border-slate-200 overflow-hidden flex flex-col">
 					<div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1">
-						<div className={`flex-1 flex items-center justify-center min-w-0 rounded-tl-[1.5rem] rounded-tr-xl rounded-br-xl rounded-bl-xl cursor-pointer ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => { setActiveTab('properties'); setSelectedId(0) }} role="tab" aria-selected={activeTab === 'properties'}>
+						<div className={`flex-1 flex items-center justify-center min-w-0 rounded-xl cursor-pointer ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => { setActiveTab('properties'); setSelectedId(0) }} role="tab" aria-selected={activeTab === 'properties'}>
 							<span className="relative inline-flex items-center">
 								<button type="button" onClick={() => { setActiveTab('properties'); setSelectedId(0) }} className="flex items-center justify-center gap-1.5 py-1.5 px-6 font-bold text-sm transition-all text-inherit bg-transparent border-0 cursor-pointer">
 									<SlidersHorizontal size={14} />Container
@@ -1465,7 +1599,7 @@ const App = () => {
 							</div>
 							<button type="button" onClick={handleNextItem} disabled={selectedId >= itemCount} className="p-1 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-all text-slate-400 shrink-0" aria-label="Next item"><ChevronRight size={14}/></button>
 						</div>
-						<button onClick={() => setActiveTab('code')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-6 rounded-tr-[1.5rem] rounded-tl-xl rounded-bl-xl rounded-br-xl font-bold text-sm transition-all ${activeTab === 'code' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}>
+						<button onClick={() => setActiveTab('code')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-6 rounded-xl font-bold text-sm transition-all ${activeTab === 'code' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:text-slate-700'}`}>
 							<FileCode size={14} />Code Editor
 						</button>
 					</div>
