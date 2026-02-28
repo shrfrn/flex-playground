@@ -161,6 +161,7 @@ const App = () => {
 	const ghostContainerRef = useRef(null)
 	const mainAreaRef = useRef(null)
 	const isQuizModeRef = useRef(false)
+	const userWorkRef = useRef(null)
 	const rightHandleDragRef = useRef(null)
 	const bottomHandleDragRef = useRef(null)
 	const cornerHandleDragRef = useRef(null)
@@ -428,6 +429,7 @@ const App = () => {
 	const startNewQuiz = (forceStart = false) => {
 		if (!forceStart && quizHistory.length >= quizQuestionCount) return
 
+		userWorkRef.current = null
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
 		setItems(defaultItems.map(item => ({ ...item })))
 		setContainerMaxWidth(null)
@@ -466,8 +468,71 @@ const App = () => {
 	}
 
 	const skipToNext = () => startNewQuiz()
-	const goBack = () => { if (historyIndex > 0) { setHistoryIndex(historyIndex - 1); setShowSuccess(false); setCountdown(0); } }
-	const goForward = () => { if (historyIndex < quizHistory.length - 1) { setHistoryIndex(historyIndex + 1); setShowSuccess(false); setCountdown(0); } }
+
+	const saveUserWork = () => {
+		userWorkRef.current = {
+			containerStyles: { ...containerStyles },
+			items: items.map(it => ({ ...it })),
+			containerMaxWidth,
+			containerMaxHeight,
+		}
+	}
+
+	const applyTarget = (target) => {
+		setContainerStyles({
+			display: 'flex',
+			flexDirection: target.flexDirection,
+			justifyContent: target.justifyContent,
+			alignItems: target.alignItems,
+			flexWrap: target.flexWrap || 'nowrap',
+			gap: target.gap,
+		})
+		setItems(prev => prev.map(it => {
+			const def = defaultItems.find(d => d.id === it.id) || it
+			const ov = target.itemOverrides?.[it.id] || {}
+			return {
+				...it,
+				alignSelf: ov.alignSelf ?? def.alignSelf,
+				flexGrow: ov.flexGrow ?? def.flexGrow,
+				flexShrink: ov.flexShrink ?? def.flexShrink,
+				order: ov.order ?? def.order,
+			}
+		}))
+	}
+
+	const restoreUserWork = () => {
+		if (!userWorkRef.current) return
+		setContainerStyles({ ...userWorkRef.current.containerStyles })
+		setItems(userWorkRef.current.items.map(it => ({ ...it })))
+		setContainerMaxWidth(userWorkRef.current.containerMaxWidth)
+		setContainerMaxHeight(userWorkRef.current.containerMaxHeight)
+	}
+
+	const currentQuestionIndex = quizHistory.length - 1
+
+	const goBack = () => {
+		if (historyIndex <= 0) return
+		if (historyIndex === currentQuestionIndex) saveUserWork()
+		setHistoryIndex(historyIndex - 1)
+		applyTarget(quizHistory[historyIndex - 1])
+		setShowSuccess(false)
+		setCountdown(0)
+	}
+
+	const goForward = () => {
+		if (historyIndex >= quizHistory.length - 1) return
+		const nextIndex = historyIndex + 1
+
+		if (nextIndex === currentQuestionIndex) {
+			restoreUserWork()
+		} else {
+			applyTarget(quizHistory[nextIndex])
+		}
+
+		setHistoryIndex(nextIndex)
+		setShowSuccess(false)
+		setCountdown(0)
+	}
 
 	const normalizeAlign = val => val === 'stretch' ? 'start' : val
 
@@ -788,10 +853,8 @@ const App = () => {
 
 	const getMainAreaRect = () => mainAreaRef.current?.getBoundingClientRect() ?? { width: 1000, height: 400 }
 
-	const quizConstraintWidth = quizTarget?.containerConstraint?.width ?? null
-	const quizConstraintHeight = quizTarget?.containerConstraint?.height ?? null
-	const effectiveMaxWidth = containerMaxWidth ?? quizConstraintWidth
-	const effectiveMaxHeight = containerMaxHeight ?? quizConstraintHeight
+	const effectiveMaxWidth = containerMaxWidth
+	const effectiveMaxHeight = containerMaxHeight
 
 	function onRightHandleDrag(e) {
 		e.preventDefault()
@@ -912,7 +975,7 @@ const App = () => {
 							{isQuizMode && (
 								<button
 									type="button"
-									onClick={() => quizCompleted ? startQuizSession() : setShowQuizOptions(true)}
+									onClick={() => setShowQuizOptions(true)}
 									className="flex items-center gap-1 h-6 px-2 rounded-md border border-white/50 bg-white/80 shadow-sm text-[10px] font-semibold text-slate-600 hover:bg-white hover:text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-indigo-500 transition-all"
 									title="Restart quiz"
 									aria-label="Restart quiz"
@@ -926,9 +989,26 @@ const App = () => {
 						{isQuizMode && (
 							<>
 								<div className="flex-grow flex justify-center px-4">
-									{quizCompleted ? (
-										<div className="flex items-center gap-2" aria-hidden />
-									) : showSuccess ? (
+								{quizCompleted ? (
+									<div className="flex items-center gap-2 h-6">
+										<div className="flex items-center h-6 bg-white/80 rounded-md border border-white/50 shadow-sm overflow-hidden">
+											<button onClick={goBack} disabled={historyIndex <= 0} className="p-1.5 hover:bg-white/80 disabled:opacity-30 transition-all text-slate-600" title="Previous question" aria-label="Previous question"><ChevronLeft size={12} /></button>
+											<span className="px-2 text-[10px] font-semibold text-slate-600 min-w-[3rem] text-center tabular-nums">
+												{historyIndex + 1} / {quizQuestionCount}
+											</span>
+											<button onClick={goForward} disabled={historyIndex >= quizHistory.length - 1} className="p-1.5 hover:bg-white/80 disabled:opacity-30 transition-all text-slate-600" aria-label="Next question"><ChevronRight size={12} /></button>
+										</div>
+										<button
+											onClick={() => setOutlineOnly(!outlineOnly)}
+											aria-pressed={outlineOnly}
+											aria-label={outlineOnly ? 'Show filled boxes' : 'Show outline only'}
+											className={`flex items-center gap-1 h-6 px-2 rounded-md font-bold text-[8px] uppercase transition-all border ${outlineOnly ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white/80 border-white/50 text-slate-600 hover:bg-white'}`}
+										>
+											<Box size={12} />
+											Outline
+										</button>
+									</div>
+								) : showSuccess ? (
 										<div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-300 w-full max-w-sm h-6">
 											<div className="flex items-center gap-1.5 shrink-0">
 												<PartyPopper className="text-emerald-500" size={14} />
@@ -984,10 +1064,10 @@ const App = () => {
 								</div>
 
 								<div className="flex items-center min-w-[80px] justify-end">
-									<div className="flex items-center gap-1 h-6 px-2 bg-amber-50 text-amber-700 rounded-md border border-amber-100 shadow-sm font-bold text-[9px]">
-										<Award size={12} />
-										<span className="tracking-tight">{score} Pts</span>
-									</div>
+								<div className="flex items-center gap-1 h-6 px-2 bg-amber-50 text-amber-700 rounded-md border border-amber-100 shadow-sm font-bold text-[9px]">
+									<Award size={12} />
+									<span className="tracking-tight">{score} Pts{hintCount > 0 ? ` · ${hintCount} hint${hintCount !== 1 ? 's' : ''}` : ''}</span>
+								</div>
 								</div>
 							</>
 						)}
@@ -1157,10 +1237,10 @@ const App = () => {
 						<div
 							className="resize-handle resize-handle-corner absolute z-30 flex items-center justify-center"
 							style={{
-								left: effectiveMaxWidth ? `${effectiveMaxWidth - 8}px` : 'calc(100% - 8px)',
-								top: effectiveMaxHeight ? `${effectiveMaxHeight - 8}px` : 'calc(100% - 8px)',
-								width: '16px',
-								height: '16px',
+								left: effectiveMaxWidth ? `min(${effectiveMaxWidth - 10}px, calc(100% - 26px))` : 'calc(100% - 26px)',
+								top: effectiveMaxHeight ? `min(${effectiveMaxHeight - 10}px, calc(100% - 26px))` : 'calc(100% - 26px)',
+								width: '20px',
+								height: '20px',
 								cursor: 'nwse-resize',
 							}}
 							onMouseDown={onCornerHandleDrag}
@@ -1168,9 +1248,10 @@ const App = () => {
 							title="Drag to resize both axes (double-click to reset)"
 							aria-label="Resize container width and height"
 						>
-							<svg width="10" height="10" viewBox="0 0 10 10" className="handle-grip text-slate-400/40 transition-all">
-								<line x1="2" y1="10" x2="10" y2="2" stroke="currentColor" strokeWidth="1.5" />
-								<line x1="6" y1="10" x2="10" y2="6" stroke="currentColor" strokeWidth="1.5" />
+							<svg width="12" height="12" viewBox="0 0 12 12" className="handle-grip text-slate-400/40 transition-all">
+								<line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" strokeWidth="1.5" />
+								<line x1="6" y1="12" x2="12" y2="6" stroke="currentColor" strokeWidth="1.5" />
+								<line x1="10" y1="12" x2="12" y2="10" stroke="currentColor" strokeWidth="1.5" />
 							</svg>
 						</div>
 
@@ -1335,9 +1416,9 @@ const App = () => {
 
 				<div className="bg-white rounded-[1.5rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col">
 					<div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1">
-						<div className={`flex-1 flex items-center justify-center min-w-0 rounded-tl-[1.5rem] rounded-tr-xl rounded-br-xl rounded-bl-xl cursor-pointer ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setActiveTab('properties')} role="tab" aria-selected={activeTab === 'properties'}>
+						<div className={`flex-1 flex items-center justify-center min-w-0 rounded-tl-[1.5rem] rounded-tr-xl rounded-br-xl rounded-bl-xl cursor-pointer ${activeTab === 'properties' ? 'bg-white text-blue-600 shadow-sm border border-slate-100' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => { setActiveTab('properties'); setSelectedId(0) }} role="tab" aria-selected={activeTab === 'properties'}>
 							<span className="relative inline-flex items-center">
-								<button type="button" onClick={() => setActiveTab('properties')} className="flex items-center justify-center gap-1.5 py-1.5 px-6 font-bold text-sm transition-all text-inherit bg-transparent border-0 cursor-pointer">
+								<button type="button" onClick={() => { setActiveTab('properties'); setSelectedId(0) }} className="flex items-center justify-center gap-1.5 py-1.5 px-6 font-bold text-sm transition-all text-inherit bg-transparent border-0 cursor-pointer">
 									<SlidersHorizontal size={14} />Container
 								</button>
 								{isContainerTainted && (
