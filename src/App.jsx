@@ -13,6 +13,7 @@ const DEFAULT_CONTAINER_STYLES = {
 	flexDirection: 'row',
 	justifyContent: 'start',
 	alignItems: 'stretch',
+	flexWrap: 'nowrap',
 	gap: '10px',
 }
 
@@ -24,6 +25,36 @@ const DEFAULT_ITEMS = [
 	{ id: 5, alignSelf: 'auto', flexGrow: 0, flexShrink: 1, order: 0, width: '90px', height: '70px' },
 ]
 
+const SIZE_RATIOS = [
+	{ w: 0.75, h: 0.85 },
+	{ w: 1.0, h: 0.70 },
+	{ w: 0.65, h: 1.10 },
+	{ w: 0.85, h: 0.55 },
+	{ w: 1.10, h: 0.95 },
+]
+const TARGET_FILL = 0.85
+const MIN_CONSTRAINT = 120
+
+function computeDefaultItems(containerWidth, containerHeight, count = 5) {
+	const padding = 60
+	const gapSize = 10
+	const totalGap = (count - 1) * gapSize
+	const availableW = containerWidth - padding - totalGap
+	const totalWRatio = SIZE_RATIOS.slice(0, count).reduce((s, r) => s + r.w, 0)
+	const baseW = (availableW * TARGET_FILL) / totalWRatio
+	const baseH = baseW * 0.45
+
+	return SIZE_RATIOS.slice(0, count).map((ratio, i) => ({
+		id: i + 1,
+		alignSelf: 'auto',
+		flexGrow: 0,
+		flexShrink: 1,
+		order: 0,
+		width: `${Math.round(baseW * ratio.w)}px`,
+		height: `${Math.round(baseH * ratio.h)}px`,
+	}))
+}
+
 function generateContainerCssFromDefaults() {
 	const c = DEFAULT_CONTAINER_STYLES
 	let css = `.container {\n  display: ${c.display};\n`
@@ -31,14 +62,15 @@ function generateContainerCssFromDefaults() {
 		css += `  flex-direction: ${c.flexDirection};\n`
 		css += `  justify-content: ${c.justifyContent};\n`
 		css += `  align-items: ${c.alignItems};\n`
+		css += `  flex-wrap: ${c.flexWrap};\n`
 		css += `  gap: ${c.gap};\n`
 	}
 	css += `}\n`
 	return css.trim()
 }
 
-function generateItemCssFromDefaults(itemIndex) {
-	const item = DEFAULT_ITEMS[itemIndex - 1]
+function generateItemCssFromDefaults(itemIndex, itemsSource = DEFAULT_ITEMS) {
+	const item = itemsSource[itemIndex - 1]
 	if (!item) return ''
 	return `.item-${itemIndex} {\n  width: ${item.width};\n  height: ${item.height};\n  align-self: ${item.alignSelf};\n  flex-grow: ${item.flexGrow};\n  flex-shrink: ${item.flexShrink};\n  order: ${item.order};\n}\n`
 }
@@ -59,6 +91,7 @@ const App = () => {
 	const [quizIncludeItemProps, setQuizIncludeItemProps] = useState(true)
 	const [quizIncludeOrder, setQuizIncludeOrder] = useState(true)
 	const [quizIncludeShrinkGrow, setQuizIncludeShrinkGrow] = useState(false)
+	const [quizIncludeFlexWrap, setQuizIncludeFlexWrap] = useState(false)
 	const [quizQuestionCount, setQuizQuestionCount] = useState(10)
 
 	// Quiz History Management
@@ -93,8 +126,11 @@ const App = () => {
 
 	// Container Styles
 	const [containerStyles, setContainerStyles] = useState({ ...DEFAULT_CONTAINER_STYLES })
+	const [containerMaxWidth, setContainerMaxWidth] = useState(null)
+	const [containerMaxHeight, setContainerMaxHeight] = useState(null)
 
 	// Individual Item Styles
+	const [defaultItems, setDefaultItems] = useState(DEFAULT_ITEMS.map(item => ({ ...item })))
 	const [items, setItems] = useState(DEFAULT_ITEMS.map((item) => ({ ...item })))
 
 	const [cssCode, setCssCode] = useState('')
@@ -106,23 +142,28 @@ const App = () => {
 	const isContainerTainted = useMemo(() => {
 		const d = DEFAULT_CONTAINER_STYLES
 		const c = containerStyles
-		const propsMatch = d.display === c.display && d.flexDirection === c.flexDirection && d.justifyContent === c.justifyContent && d.alignItems === c.alignItems && d.gap === c.gap
-		return !propsMatch || containerCodeDirty
-	}, [containerStyles, containerCodeDirty])
+		const propsMatch = d.display === c.display && d.flexDirection === c.flexDirection && d.justifyContent === c.justifyContent && d.alignItems === c.alignItems && d.flexWrap === c.flexWrap && d.gap === c.gap
+		return !propsMatch || containerCodeDirty || containerMaxWidth !== null || containerMaxHeight !== null
+	}, [containerStyles, containerCodeDirty, containerMaxWidth, containerMaxHeight])
 
 	const currentItemId = selectedId > 0 ? selectedId : 1
 	const isCurrentItemTainted = useMemo(() => {
 		const idx = currentItemId - 1
 		if (idx < 0 || idx >= items.length) return false
-		const def = DEFAULT_ITEMS[idx]
+		const def = defaultItems[idx]
 		const cur = items[idx]
 		if (!def || !cur) return false
 		const propsMatch = def.alignSelf === cur.alignSelf && def.flexGrow === cur.flexGrow && def.flexShrink === cur.flexShrink && def.order === cur.order && def.width === cur.width && def.height === cur.height
 		return !propsMatch || itemCodeDirty[idx]
-	}, [items, currentItemId, itemCodeDirty])
+	}, [items, currentItemId, itemCodeDirty, defaultItems])
 	const [copyFeedback, setCopyFeedback] = useState(false)
 	const realContainerRef = useRef(null)
 	const ghostContainerRef = useRef(null)
+	const mainAreaRef = useRef(null)
+	const isQuizModeRef = useRef(false)
+	const rightHandleDragRef = useRef(null)
+	const bottomHandleDragRef = useRef(null)
+	const cornerHandleDragRef = useRef(null)
 	const lastUpdateFromCodeEditorRef = useRef(false)
 	const lastUpdateFromItemCodeEditorRef = useRef(false)
 	const [hintPopoverPosition, setHintPopoverPosition] = useState(null)
@@ -133,6 +174,7 @@ const App = () => {
 		flexDirection: ['row', 'column', 'row-reverse', 'column-reverse'],
 		justifyContent: ['start', 'end', 'center', 'space-between', 'space-around', 'space-evenly'],
 		alignItems: ['stretch', 'start', 'end', 'center', 'baseline'],
+		flexWrap: ['nowrap', 'wrap', 'wrap-reverse'],
 		alignSelf: ['auto', 'start', 'end', 'center', 'baseline', 'stretch'],
 	}
 
@@ -145,6 +187,7 @@ const App = () => {
 			setQuizIncludeItemProps(false)
 			setQuizIncludeOrder(false)
 			setQuizIncludeShrinkGrow(false)
+			setQuizIncludeFlexWrap(false)
 			return
 		}
 
@@ -152,6 +195,7 @@ const App = () => {
 			setQuizIncludeItemProps(true)
 			setQuizIncludeOrder(true)
 			setQuizIncludeShrinkGrow(false)
+			setQuizIncludeFlexWrap(false)
 			return
 		}
 
@@ -159,6 +203,7 @@ const App = () => {
 			setQuizIncludeItemProps(true)
 			setQuizIncludeOrder(true)
 			setQuizIncludeShrinkGrow(true)
+			setQuizIncludeFlexWrap(true)
 		}
 	}
 
@@ -168,6 +213,7 @@ const App = () => {
 			css += `  flex-direction: ${containerStyles.flexDirection};\n`
 			css += `  justify-content: ${containerStyles.justifyContent};\n`
 			css += `  align-items: ${containerStyles.alignItems};\n`
+			css += `  flex-wrap: ${containerStyles.flexWrap};\n`
 			css += `  gap: ${containerStyles.gap};\n`
 		}
 		css += `}\n`
@@ -211,13 +257,15 @@ const App = () => {
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
 		setCssCode(generateContainerCssFromDefaults())
 		setContainerCodeDirty(false)
+		setContainerMaxWidth(null)
+		setContainerMaxHeight(null)
 		setCodeResetKey(k => k + 1)
 	}
 	const resetItemCode = (itemIndex) => {
-		setItems(prev => prev.map((it, i) => (i === itemIndex - 1 ? { ...DEFAULT_ITEMS[itemIndex - 1] } : it)))
+		setItems(prev => prev.map((it, i) => (i === itemIndex - 1 ? { ...defaultItems[itemIndex - 1] } : it)))
 		setItemCodes(prev => {
 			const next = [...prev]
-			next[itemIndex - 1] = generateItemCssFromDefaults(itemIndex)
+			next[itemIndex - 1] = generateItemCssFromDefaults(itemIndex, defaultItems)
 			return next
 		})
 		setItemCodeDirty(prev => {
@@ -230,8 +278,8 @@ const App = () => {
 
 	const resetAllToDefaults = () => {
 		resetContainerCode()
-		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
-		setItemCodes(DEFAULT_ITEMS.map((_, idx) => generateItemCssFromDefaults(idx + 1)))
+		setItems(defaultItems.map(item => ({ ...item })))
+		setItemCodes(defaultItems.map((_, idx) => generateItemCssFromDefaults(idx + 1, defaultItems)))
 		setItemCodeDirty(() => Array(5).fill(false))
 		setCodeResetKey(k => k + 1)
 	}
@@ -271,6 +319,8 @@ const App = () => {
 		if (justifyMatch) newContainer.justifyContent = justifyMatch[1].replace('flex-', '')
 		const alignMatch = val.match(/align-items:\s*([\w-]+)/)
 		if (alignMatch) newContainer.alignItems = alignMatch[1].replace('flex-', '')
+		const wrapMatch = val.match(/flex-wrap:\s*([\w-]+)/)
+		if (wrapMatch) newContainer.flexWrap = wrapMatch[1]
 		const gapMatch = val.match(/gap:\s*(\d+px)/)
 		if (gapMatch) newContainer.gap = gapMatch[1]
 		setContainerStyles(newContainer)
@@ -299,11 +349,25 @@ const App = () => {
 			flexDirection: pickRandom(flexValues.flexDirection),
 			justifyContent: pickRandom(flexValues.justifyContent),
 			alignItems: pickRandom(flexValues.alignItems),
+			flexWrap: 'nowrap',
 			gap: `${Math.floor(Math.random() * 5) * 5}px`,
 		}
 
+		if (quizIncludeFlexWrap && Math.random() > 0.4) {
+			containerProps.flexWrap = pickRandom(['wrap', 'wrap-reverse'])
+
+			const isColumn = containerProps.flexDirection.includes('column')
+			const activeDefaults = defaultItems.slice(0, itemCount)
+			const sizes = activeDefaults.map(it => parseInt(isColumn ? it.height : it.width))
+			const gapPx = parseInt(containerProps.gap)
+			const totalSize = sizes.reduce((a, b) => a + b, 0) + (itemCount - 1) * gapPx
+			const constraintAxis = isColumn ? 'height' : 'width'
+			const constraintValue = Math.round(totalSize * (0.5 + Math.random() * 0.2)) + 60
+			containerProps.containerConstraint = { [constraintAxis]: constraintValue }
+		}
+
 		const hasItemLevelConfig = quizIncludeItemProps || quizIncludeOrder || quizIncludeShrinkGrow
-		if (!hasItemLevelConfig) return containerProps
+		if (!hasItemLevelConfig && containerProps.flexWrap === 'nowrap') return containerProps
 
 		const itemOverrides = {}
 		const activeItems = items.slice(0, itemCount)
@@ -328,7 +392,7 @@ const App = () => {
 		})
 
 		if (quizIncludeOrder && Math.random() > 0.3) {
-			const defaultVisual = getVisualOrder(activeItems, it => DEFAULT_ITEMS.find(d => d.id === it.id)?.order ?? 0)
+			const defaultVisual = getVisualOrder(activeItems, it => defaultItems.find(d => d.id === it.id)?.order ?? 0)
 			const shuffled = [...defaultVisual].sort(() => Math.random() - 0.5)
 			const isIdentical = shuffled.every((id, i) => id === defaultVisual[i])
 
@@ -340,8 +404,8 @@ const App = () => {
 			}
 		}
 
-		if (Object.keys(itemOverrides).length === 0) {
-			const defaultVisual = getVisualOrder(activeItems, it => DEFAULT_ITEMS.find(d => d.id === it.id)?.order ?? 0)
+		if (Object.keys(itemOverrides).length === 0 && containerProps.flexWrap === 'nowrap') {
+			const defaultVisual = getVisualOrder(activeItems, it => defaultItems.find(d => d.id === it.id)?.order ?? 0)
 			const shuffled = [...defaultVisual].sort(() => Math.random() - 0.5)
 			const isIdentical = shuffled.every((id, i) => id === defaultVisual[i])
 
@@ -365,7 +429,9 @@ const App = () => {
 		if (!forceStart && quizHistory.length >= quizQuestionCount) return
 
 		setContainerStyles({ ...DEFAULT_CONTAINER_STYLES })
-		setItems(DEFAULT_ITEMS.map(item => ({ ...item })))
+		setItems(defaultItems.map(item => ({ ...item })))
+		setContainerMaxWidth(null)
+		setContainerMaxHeight(null)
 		setQuizHistory((prev) => [...prev, generateQuizQuestion()])
 		setHistoryIndex((prev) => prev + 1)
 		setCountdown(0)
@@ -422,6 +488,7 @@ const App = () => {
 		if (containerStyles.flexDirection !== quizTarget.flexDirection) keys.add('direction')
 		if (containerStyles.justifyContent !== quizTarget.justifyContent) keys.add('justify')
 		if (normalizeAlign(containerStyles.alignItems) !== normalizeAlign(quizTarget.alignItems)) keys.add('align')
+		if (containerStyles.flexWrap !== quizTarget.flexWrap) keys.add('wrap')
 
 		const directionMatches = containerStyles.flexDirection === quizTarget.flexDirection
 		const justifyMatches = containerStyles.justifyContent === quizTarget.justifyContent
@@ -432,13 +499,13 @@ const App = () => {
 
 		const userVisualOrder = getVisualOrder(activeItems, it => it.order)
 		const targetVisualOrder = getVisualOrder(activeItems, it => {
-			const defaultItem = DEFAULT_ITEMS.find(d => d.id === it.id) || it
+			const defaultItem = defaultItems.find(d => d.id === it.id) || it
 			return (quizTarget.itemOverrides?.[it.id]?.order) ?? defaultItem.order
 		})
 		const orderMatters = userVisualOrder.some((id, i) => id !== targetVisualOrder[i])
 
 		activeItems.forEach(item => {
-			const defaultItem = DEFAULT_ITEMS.find(it => it.id === item.id) || item
+			const defaultItem = defaultItems.find(it => it.id === item.id) || item
 			const ov = quizTarget.itemOverrides?.[item.id] || {}
 
 			if (ov.alignSelf !== undefined) {
@@ -479,6 +546,7 @@ const App = () => {
 		if (key === 'direction') return 'Consider changing the container\'s flex-direction property.'
 		if (key === 'justify') return 'Consider adjusting the container\'s justify-content property.'
 		if (key === 'align') return 'Consider changing the container\'s align-items property.'
+		if (key === 'wrap') return 'Consider changing the container\'s flex-wrap property.'
 		if (key === 'gap') return 'Consider adjusting the container\'s gap property.'
 
 		const match = key.match(/^(\w+)-(\d+)$/)
@@ -574,8 +642,28 @@ const App = () => {
 	}
 
 	useEffect(() => {
+		isQuizModeRef.current = isQuizMode
 		if (!isQuizMode) setShowQuizOptions(false)
 	}, [isQuizMode])
+
+	useEffect(() => {
+		const el = mainAreaRef.current
+		if (!el) return
+
+		const measure = () => {
+			const { width, height } = el.getBoundingClientRect()
+			if (width < 100) return
+			const computed = computeDefaultItems(width, height)
+			setDefaultItems(computed)
+			if (!isQuizModeRef.current) setItems(computed.map(item => ({ ...item })))
+		}
+
+		measure()
+
+		const observer = new ResizeObserver(() => measure())
+		observer.observe(el)
+		return () => observer.disconnect()
+	}, [])
 
 	useEffect(() => {
 		if (!isQuizMode || !showQuizOptions) return
@@ -609,37 +697,62 @@ const App = () => {
 
 	useEffect(() => {
 		if (!isQuizMode || historyIndex === -1 || historyIndex !== quizHistory.length - 1 || showSuccess) return
-		const checkMatch = () => {
-			if (!realContainerRef.current || !ghostContainerRef.current) return
-			const realItems = Array.from(realContainerRef.current.children)
-			const ghostItems = Array.from(ghostContainerRef.current.children)
-			if (realItems.length !== ghostItems.length) return
-			const isVisualMatch = realItems.every((real, index) => {
-				const ghost = ghostItems[index]
-				const rRect = real.getBoundingClientRect()
-				const gRect = ghost.getBoundingClientRect()
-				return Math.abs(rRect.left - gRect.left) <= 2 && Math.abs(rRect.top - gRect.top) <= 2 && Math.abs(rRect.width - gRect.width) <= 2 && Math.abs(rRect.height - gRect.height) <= 2
+		const target = quizHistory[historyIndex]
+		if (!target) return
+
+		const normalizeAlign = v => (v === 'stretch' ? 'start' : v)
+
+		const resolveAlignSelf = (selfVal, containerAlignItems) => {
+			const resolved = selfVal === 'auto' ? containerAlignItems : selfVal
+			return normalizeAlign(resolved)
+		}
+
+		const checkPropsMatch = () => {
+			const containerOk =
+				containerStyles.flexDirection === target.flexDirection &&
+				containerStyles.justifyContent === target.justifyContent &&
+				normalizeAlign(containerStyles.alignItems) === normalizeAlign(target.alignItems) &&
+				containerStyles.flexWrap === (target.flexWrap || 'nowrap') &&
+				containerStyles.gap === target.gap
+
+			if (!containerOk) return false
+
+			return items.slice(0, itemCount).every((item, idx) => {
+				const def = defaultItems[idx] || item
+				const ov = target.itemOverrides?.[item.id] || {}
+
+				const userAlign = resolveAlignSelf(item.alignSelf, containerStyles.alignItems)
+				const targetAlign = resolveAlignSelf(ov.alignSelf ?? def.alignSelf, target.alignItems)
+
+				return userAlign === targetAlign &&
+					item.flexGrow === (ov.flexGrow ?? def.flexGrow) &&
+					item.flexShrink === (ov.flexShrink ?? def.flexShrink) &&
+					item.order === (ov.order ?? def.order)
 			})
-			if (isVisualMatch) {
-				setScore(s => s + 1)
+		}
 
-				const isLastQuestion =
-					quizHistory.length >= quizQuestionCount &&
-					historyIndex === quizQuestionCount - 1
+		const checkMatch = () => {
+			if (!checkPropsMatch()) return
 
-				if (isLastQuestion) {
-					setQuizCompleted(true)
-					setShowSuccess(false)
-					setCountdown(0)
-				} else {
-					setShowSuccess(true)
-					setCountdown(0)
-				}
+			setScore(s => s + 1)
+
+			const isLastQuestion =
+				quizHistory.length >= quizQuestionCount &&
+				historyIndex === quizQuestionCount - 1
+
+			if (isLastQuestion) {
+				setQuizCompleted(true)
+				setShowSuccess(false)
+				setCountdown(0)
+			} else {
+				setShowSuccess(true)
+				setCountdown(0)
 			}
 		}
-		const timer = setTimeout(checkMatch, 450)
+
+		const timer = setTimeout(checkMatch, 350)
 		return () => clearTimeout(timer)
-	}, [containerStyles, items, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess, quizQuestionCount])
+	}, [containerStyles, items, quizHistory, historyIndex, isQuizMode, itemCount, showSuccess, quizQuestionCount, defaultItems])
 
 	// Updated RadioGroup with reduced py-1 vertical padding
 	const RadioGroup = ({ name, options, value, onChange, disabled, className = '' }) => (
@@ -672,6 +785,71 @@ const App = () => {
 	// Axis derived states
 	const isVerticalFlow = containerStyles.flexDirection.includes('column')
 	const isReverse = containerStyles.flexDirection.includes('reverse')
+
+	const getMainAreaRect = () => mainAreaRef.current?.getBoundingClientRect() ?? { width: 1000, height: 400 }
+
+	const quizConstraintWidth = quizTarget?.containerConstraint?.width ?? null
+	const quizConstraintHeight = quizTarget?.containerConstraint?.height ?? null
+	const effectiveMaxWidth = containerMaxWidth ?? quizConstraintWidth
+	const effectiveMaxHeight = containerMaxHeight ?? quizConstraintHeight
+
+	function onRightHandleDrag(e) {
+		e.preventDefault()
+		const rect = getMainAreaRect()
+		const startX = e.clientX
+		const startW = effectiveMaxWidth ?? rect.width
+
+		const onMove = ev => {
+			const newW = Math.max(MIN_CONSTRAINT, Math.min(rect.width, startW + (ev.clientX - startX)))
+			setContainerMaxWidth(Math.round(newW))
+		}
+		const onUp = () => {
+			window.removeEventListener('mousemove', onMove)
+			window.removeEventListener('mouseup', onUp)
+		}
+		window.addEventListener('mousemove', onMove)
+		window.addEventListener('mouseup', onUp)
+	}
+
+	function onBottomHandleDrag(e) {
+		e.preventDefault()
+		const rect = getMainAreaRect()
+		const startY = e.clientY
+		const startH = effectiveMaxHeight ?? rect.height
+
+		const onMove = ev => {
+			const newH = Math.max(MIN_CONSTRAINT, Math.min(rect.height, startH + (ev.clientY - startY)))
+			setContainerMaxHeight(Math.round(newH))
+		}
+		const onUp = () => {
+			window.removeEventListener('mousemove', onMove)
+			window.removeEventListener('mouseup', onUp)
+		}
+		window.addEventListener('mousemove', onMove)
+		window.addEventListener('mouseup', onUp)
+	}
+
+	function onCornerHandleDrag(e) {
+		e.preventDefault()
+		const rect = getMainAreaRect()
+		const startX = e.clientX
+		const startY = e.clientY
+		const startW = effectiveMaxWidth ?? rect.width
+		const startH = effectiveMaxHeight ?? rect.height
+
+		const onMove = ev => {
+			const newW = Math.max(MIN_CONSTRAINT, Math.min(rect.width, startW + (ev.clientX - startX)))
+			const newH = Math.max(MIN_CONSTRAINT, Math.min(rect.height, startH + (ev.clientY - startY)))
+			setContainerMaxWidth(Math.round(newW))
+			setContainerMaxHeight(Math.round(newH))
+		}
+		const onUp = () => {
+			window.removeEventListener('mousemove', onMove)
+			window.removeEventListener('mouseup', onUp)
+		}
+		window.addEventListener('mousemove', onMove)
+		window.addEventListener('mouseup', onUp)
+	}
 
 	return (
 		<div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-6 font-sans">
@@ -816,7 +994,7 @@ const App = () => {
 						{!isQuizMode && <div className="min-w-[120px]" />}
 					</div>
 
-					<div className="flex-grow relative bg-slate-200">
+					<div ref={mainAreaRef} className="flex-grow relative bg-slate-200">
 						{/* CONFETTI + SUCCESS MESSAGE OVERLAY — when quiz completes */}
 						{isQuizMode && quizCompleted && (
 							<div className="absolute inset-0 pointer-events-none z-30 overflow-hidden flex items-center justify-center" aria-hidden>
@@ -844,89 +1022,156 @@ const App = () => {
 							</div>
 						)}
 
-						{/* AXES OVERLAY */}
-						{showAxes && (
-							<div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
-								<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2' : 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2'}`}>
-									<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
-										isVerticalFlow
-											? (isReverse ? 'top-0 left-0 -translate-x-1/2 rotate-180' : 'bottom-0 left-0 -translate-x-1/2')
-											: (isReverse ? 'left-0 top-0 -translate-y-1/2 rotate-180' : 'right-0 top-0 -translate-y-1/2')
-									}`}>
-										{isVerticalFlow ? <ArrowDown size={14} strokeWidth={4} /> : <ArrowRight size={14} strokeWidth={4} />}
+						{/* CONSTRAINED WRAPPER */}
+						<div
+							className="absolute top-0 left-0"
+							style={{
+								width: effectiveMaxWidth ? `${effectiveMaxWidth}px` : '100%',
+								height: effectiveMaxHeight ? `${effectiveMaxHeight}px` : '100%',
+							}}
+						>
+							{/* AXES OVERLAY */}
+							{showAxes && (
+								<div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
+									<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2' : 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2'}`}>
+										<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
+											isVerticalFlow
+												? (isReverse ? 'top-0 left-0 -translate-x-1/2 rotate-180' : 'bottom-0 left-0 -translate-x-1/2')
+												: (isReverse ? 'left-0 top-0 -translate-y-1/2 rotate-180' : 'right-0 top-0 -translate-y-1/2')
+										}`}>
+											{isVerticalFlow ? <ArrowDown size={14} strokeWidth={4} /> : <ArrowRight size={14} strokeWidth={4} />}
+										</div>
+										<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
+											isVerticalFlow
+												? 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
+												: 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
+										}`}>
+											Main Axis
+										</div>
 									</div>
-									<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
-										isVerticalFlow
-											? 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
-											: 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
-									}`}>
-										Main Axis
+
+									<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2' : 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2'}`}>
+										<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
+											isVerticalFlow ? 'right-0 top-0 -translate-y-1/2' : 'bottom-0 left-0 -translate-x-1/2'
+										}`}>
+											{isVerticalFlow ? <ArrowRight size={14} strokeWidth={4} /> : <ArrowDown size={14} strokeWidth={4} />}
+										</div>
+										<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
+											isVerticalFlow
+												? 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
+												: 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
+										}`}>
+											Cross Axis
+										</div>
 									</div>
 								</div>
+							)}
 
-								<div className={`absolute border-slate-400/30 border-dashed transition-all duration-500 ${isVerticalFlow ? 'top-1/2 left-0 right-0 border-t-2 -translate-y-1/2' : 'left-1/2 top-0 bottom-0 border-l-2 -translate-x-1/2'}`}>
-									<div className={`absolute transition-all duration-500 text-slate-400/40 flex items-center justify-center ${
-										isVerticalFlow ? 'right-0 top-0 -translate-y-1/2' : 'bottom-0 left-0 -translate-x-1/2'
-									}`}>
-										{isVerticalFlow ? <ArrowRight size={14} strokeWidth={4} /> : <ArrowDown size={14} strokeWidth={4} />}
-									</div>
-									<div className={`absolute text-[8px] font-bold uppercase tracking-[0.2em] text-slate-400/40 transition-all duration-500 whitespace-nowrap ${
-										isVerticalFlow
-											? 'top-0 left-1/4 -translate-y-full -translate-x-1/2 pb-1'
-											: 'left-0 top-1/4 -translate-x-[110%] -rotate-90 origin-right'
-									}`}>
-										Cross Axis
-									</div>
+							{/* QUIZ GHOSTS */}
+							{isQuizMode && quizTarget && (
+								<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none transition-flex z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, flexWrap: quizTarget.flexWrap || 'nowrap', gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
+									{items.slice(0, itemCount).map((item, idx) => {
+										const defaultItem = defaultItems[idx] || item
+										const overrides = quizTarget.itemOverrides?.[item.id] || {}
+										return (
+											<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, minWidth: 0, minHeight: 0, backgroundColor: 'rgba(71, 85, 105, 0.2)', borderRadius: '16px', outline: '2px dashed rgba(30, 41, 55, 0.2)', outlineOffset: '-2px', boxSizing: 'border-box', order: overrides.order ?? defaultItem.order, alignSelf: overrides.alignSelf ?? defaultItem.alignSelf, flexGrow: overrides.flexGrow ?? defaultItem.flexGrow, flexShrink: overrides.flexShrink ?? defaultItem.flexShrink }}>
+												<span className="font-bold text-2xl" style={{ opacity: 0 }}>{item.id}</span>
+											</div>
+										)
+									})}
 								</div>
-							</div>
-						)}
+							)}
 
-						{/* QUIZ GHOSTS — use only target overrides + defaults so ghost doesn't follow user's edits */}
-						{isQuizMode && quizTarget && (
-							<div ref={ghostContainerRef} className="absolute inset-0 pointer-events-none opacity-20 transition-flex z-0" style={{ display: 'flex', flexDirection: quizTarget.flexDirection, justifyContent: quizTarget.justifyContent, alignItems: quizTarget.alignItems, gap: quizTarget.gap, padding: '30px', boxSizing: 'border-box' }}>
-								{items.slice(0, itemCount).map((item, idx) => {
-									const defaultItem = DEFAULT_ITEMS[idx] || item
-									const overrides = quizTarget.itemOverrides?.[item.id] || {}
+							{/* REAL ITEMS */}
+							<div ref={realContainerRef} className="absolute inset-0 transition-flex z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, flexWrap: containerStyles.flexWrap, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
+								{items.slice(0, itemCount).map((item) => {
+									const itemColor = `hsl(${item.id * 50 + 200}, 70%, 60%)`
+									const isOutline = outlineOnly
 									return (
-										<div key={`target-${item.id}`} className="flex items-center justify-center" style={{ width: item.width, height: item.height, backgroundColor: '#475569', borderRadius: '16px', outline: '2px dashed #1e293b', outlineOffset: '-2px', boxSizing: 'border-box', order: overrides.order ?? defaultItem.order, alignSelf: overrides.alignSelf ?? defaultItem.alignSelf, flexGrow: overrides.flexGrow ?? defaultItem.flexGrow, flexShrink: overrides.flexShrink ?? defaultItem.flexShrink }}>
-											<span className="font-bold text-2xl opacity-0">{item.id}</span>
+										<div
+											key={item.id}
+											onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); setActiveTab('items') }}
+											className={`relative flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 shadow-xl transition-item ${selectedId === item.id ? 'z-10' : ''}`}
+											style={{
+												width: item.width,
+												height: item.height,
+												minWidth: 0,
+												minHeight: 0,
+												backgroundColor: isOutline ? 'transparent' : itemColor,
+												opacity: isOutline ? 1 : itemOpacity,
+												color: !isOutline ? 'white' : undefined,
+												borderRadius: '16px',
+												alignSelf: item.alignSelf,
+												flexGrow: item.flexGrow,
+												flexShrink: item.flexShrink,
+												order: item.order,
+												boxSizing: 'border-box',
+												border: isOutline ? `2px solid ${itemColor}` : undefined,
+												outline: selectedId === item.id ? '2px solid white' : undefined,
+												outlineOffset: selectedId === item.id ? '-2px' : undefined,
+											}}
+										>
+											<span className={`font-bold text-2xl ${isOutline ? 'text-slate-500 opacity-50' : 'drop-shadow-sm'}`}>{item.id}</span>
 										</div>
 									)
 								})}
 							</div>
-						)}
+						</div>
 
-						{/* REAL ITEMS */}
-						<div ref={realContainerRef} className="absolute inset-0 transition-flex z-20" style={{ display: containerStyles.display, flexDirection: containerStyles.flexDirection, justifyContent: containerStyles.justifyContent, alignItems: containerStyles.alignItems, gap: containerStyles.gap, padding: '30px', boxSizing: 'border-box' }} onClick={() => { setActiveTab('properties'); setSelectedId(0) }}>
-							{items.slice(0, itemCount).map((item) => {
-								const itemColor = `hsl(${item.id * 50 + 200}, 70%, 60%)`
-								const isOutline = outlineOnly
-								return (
-									<div
-										key={item.id}
-										onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); setActiveTab('items') }}
-										className={`relative flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 shadow-xl ${selectedId === item.id ? 'z-10' : ''}`}
-										style={{
-											width: item.width,
-											height: item.height,
-											backgroundColor: isOutline ? 'transparent' : itemColor,
-											opacity: isOutline ? 1 : itemOpacity,
-											color: !isOutline ? 'white' : undefined,
-											borderRadius: '16px',
-											alignSelf: item.alignSelf,
-											flexGrow: item.flexGrow,
-											flexShrink: item.flexShrink,
-											order: item.order,
-											boxSizing: 'border-box',
-											border: isOutline ? `2px solid ${itemColor}` : undefined,
-											outline: selectedId === item.id ? '2px solid white' : undefined,
-											outlineOffset: selectedId === item.id ? '-2px' : undefined,
-										}}
-									>
-										<span className={`font-bold text-2xl ${isOutline ? 'text-slate-500 opacity-50' : 'drop-shadow-sm'}`}>{item.id}</span>
-									</div>
-								)
-							})}
+						{/* RESIZE HANDLES */}
+						{/* Right handle */}
+						<div
+							className="resize-handle resize-handle-right absolute top-0 z-30 flex items-center justify-center"
+							style={{
+								left: effectiveMaxWidth ? `${effectiveMaxWidth - 5}px` : 'calc(100% - 5px)',
+								width: '10px',
+								height: effectiveMaxHeight ? `${effectiveMaxHeight}px` : '100%',
+								cursor: 'col-resize',
+							}}
+							onMouseDown={onRightHandleDrag}
+							onDoubleClick={() => setContainerMaxWidth(null)}
+							title="Drag to resize width (double-click to reset)"
+							aria-label="Resize container width"
+						>
+							<div className="handle-grip w-[3px] h-8 rounded-full bg-slate-400/40 transition-all" />
+						</div>
+
+						{/* Bottom handle */}
+						<div
+							className="resize-handle resize-handle-bottom absolute left-0 z-30 flex items-center justify-center"
+							style={{
+								top: effectiveMaxHeight ? `${effectiveMaxHeight - 5}px` : 'calc(100% - 5px)',
+								height: '10px',
+								width: effectiveMaxWidth ? `${effectiveMaxWidth}px` : '100%',
+								cursor: 'row-resize',
+							}}
+							onMouseDown={onBottomHandleDrag}
+							onDoubleClick={() => setContainerMaxHeight(null)}
+							title="Drag to resize height (double-click to reset)"
+							aria-label="Resize container height"
+						>
+							<div className="handle-grip h-[3px] w-8 rounded-full bg-slate-400/40 transition-all" />
+						</div>
+
+						{/* Corner handle */}
+						<div
+							className="resize-handle resize-handle-corner absolute z-30 flex items-center justify-center"
+							style={{
+								left: effectiveMaxWidth ? `${effectiveMaxWidth - 8}px` : 'calc(100% - 8px)',
+								top: effectiveMaxHeight ? `${effectiveMaxHeight - 8}px` : 'calc(100% - 8px)',
+								width: '16px',
+								height: '16px',
+								cursor: 'nwse-resize',
+							}}
+							onMouseDown={onCornerHandleDrag}
+							onDoubleClick={() => { setContainerMaxWidth(null); setContainerMaxHeight(null) }}
+							title="Drag to resize both axes (double-click to reset)"
+							aria-label="Resize container width and height"
+						>
+							<svg width="10" height="10" viewBox="0 0 10 10" className="handle-grip text-slate-400/40 transition-all">
+								<line x1="2" y1="10" x2="10" y2="2" stroke="currentColor" strokeWidth="1.5" />
+								<line x1="6" y1="10" x2="10" y2="6" stroke="currentColor" strokeWidth="1.5" />
+							</svg>
 						</div>
 
 						{/* QUIZ HINTS POPOVER */}
@@ -1043,6 +1288,9 @@ const App = () => {
 											</div>
 											<div>
 												align-items: <b className="text-sky-500">{String(quizTarget.alignItems).toLowerCase()}</b>;
+											</div>
+											<div>
+												flex-wrap: <b className="text-purple-500">{String(quizTarget.flexWrap || 'nowrap').toLowerCase()}</b>;
 											</div>
 											<div>
 												gap: <b className="text-amber-500">{String(quizTarget.gap).toLowerCase()}</b>;
@@ -1162,6 +1410,10 @@ const App = () => {
 
 											<ControlGroup label="Align Items" defaultValue="stretch">
 												<RadioGroup name="alignItems" options={flexValues.alignItems} value={containerStyles.alignItems} onChange={(val) => setContainerStyles({ ...containerStyles, alignItems: val })} />
+											</ControlGroup>
+
+											<ControlGroup label="Flex Wrap" defaultValue="nowrap">
+												<RadioGroup name="flexWrap" options={flexValues.flexWrap} value={containerStyles.flexWrap} onChange={(val) => setContainerStyles({ ...containerStyles, flexWrap: val })} />
 											</ControlGroup>
 										</>
 									)}
@@ -1381,6 +1633,20 @@ const App = () => {
 										aria-label="Toggle shrink and grow configuration in quiz"
 									/>
 								</label>
+
+								<label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 bg-slate-50/60 cursor-pointer">
+									<div className="text-xs text-slate-700">
+										<p className="font-semibold">Flex wrap</p>
+										<p className="text-[10px] text-slate-500">Include flex-wrap with constrained container sizes.</p>
+									</div>
+									<input
+										type="checkbox"
+										checked={quizIncludeFlexWrap}
+										onChange={e => { setQuizIncludeFlexWrap(e.target.checked); if (quizDifficulty !== 'custom') setQuizDifficulty('custom') }}
+										className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+										aria-label="Toggle flex wrap in quiz"
+									/>
+								</label>
 							</div>
 
 							<div>
@@ -1440,9 +1706,30 @@ const App = () => {
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .transition-flex {
-          transition-property: flex-direction, justify-content, align-items, gap, opacity;
+          transition-property: flex-direction, justify-content, align-items, flex-wrap, gap, opacity;
           transition-duration: 300ms;
           transition-timing-function: ease;
+        }
+        .transition-item {
+          transition-property: transform, opacity, background-color, box-shadow, outline, border-color;
+          transition-duration: 300ms;
+          transition-timing-function: ease;
+        }
+        .resize-handle:hover .handle-grip,
+        .resize-handle:active .handle-grip {
+          background-color: rgba(59, 130, 246, 0.7);
+        }
+        .resize-handle-right:hover .handle-grip,
+        .resize-handle-right:active .handle-grip {
+          height: 3rem;
+        }
+        .resize-handle-bottom:hover .handle-grip,
+        .resize-handle-bottom:active .handle-grip {
+          width: 3rem;
+        }
+        .resize-handle-corner:hover .handle-grip,
+        .resize-handle-corner:active .handle-grip {
+          color: rgba(59, 130, 246, 0.7);
         }
         @keyframes confetti-fall {
           to {
